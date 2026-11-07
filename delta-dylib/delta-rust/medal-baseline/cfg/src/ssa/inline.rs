@@ -540,7 +540,7 @@ pub fn inline(
                     && assign.left.len() == 1
                     && assign.right.len() == 1
                     && assign.right[0].as_table().is_some()
-                    && if let  ast::LValue::Local(object_local)  = &assign.left[0] { true } else { false }
+                    && let ast::LValue::Local(object_local) = &assign.left[0]
                 {
                     let table_index = i;
                     let object_local = object_local.clone();
@@ -549,11 +549,9 @@ pub fn inline(
                         && let ast::Statement::Assign(field_assign) = &block[i]
                         && field_assign.left.len() == 1
                         && field_assign.right.len() == 1
-                        && let ast::LValue::Index(ast::Index {
-                            left: ast::RValue::Local(local),
-                            ..
-                        }) = &field_assign.left[0]
-                        && local == object_local
+                        && let ast::LValue::Index(idx) = &field_assign.left[0]
+                        && let ast::RValue::Local(local) = &*idx.left
+                        && *local == object_local
                     {
                         let right = &field_assign.right[0];
                         if right.as_closure().is_none()
