@@ -499,12 +499,12 @@ pub fn inline(
                 if let ast::Statement::Assign(assign) = &block[stat_index]
                     && assign.left.len() == 1
                     && assign.right.len() == 1
-                    && matches!(&assign.left[0], ast::LValue::Local(local))
                 {
                     let rvalue = &assign.right[0];
                     let has_side_effects = rvalue.has_side_effects();
                     // TODO: REFACTOR: is_some_and
-                    if !upvalue_to_group.contains_key(local)
+                    if let ast::LValue::Local(local) = &assign.left[0]
+                        && !upvalue_to_group.contains_key(local)
                         && local_usages.get(local).map_or(true, |&u| u == 0)
                     {
                         if has_side_effects {
@@ -545,7 +545,7 @@ pub fn inline(
                     && assign.left.len() == 1
                     && assign.right.len() == 1
                     && assign.right[0].as_table().is_some()
-                    && matches!(&assign.left[0], ast::LValue::Local(object_local))
+                    && let ast::LValue::Local(object_local) = &assign.left[0]
                 {
                     let table_index = i;
                     let object_local = object_local.clone();
@@ -557,8 +557,7 @@ pub fn inline(
                         && if let ast::LValue::Index(ast::Index {
                             left: ast::RValue::Local(local),
                             ..
-                        }) = &field_assign.left[0] { true } else { false }
-                        && local == &object_local
+                        }) = &field_assign.left[0] { local == &object_local } else { false }
                     {
                         let right = &field_assign.right[0];
                         if right.as_closure().is_none()
