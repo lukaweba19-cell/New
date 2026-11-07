@@ -5,6 +5,7 @@
 #include "native_dispatch.hpp"
 
 #include <cstdlib>
+#include <dlfcn.h>
 
 // The dispatch table is populated with function pointers resolved from the
 // loaded process. In the native function, these are looked up via dladdr /
