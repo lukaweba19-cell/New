@@ -127,7 +127,7 @@ fn match_conditional_sequence(
             let second_block = function.block(second_conditional).unwrap();
             if let Some(second_conditional_if) = second_block.last().and_then(|s| s.as_if()) {
                 if second_conditional_successors.len() == 2
-                    && if let  Ok(edge_to_other)  = second_conditional_successors { true } else { false }
+                    && second_conditional_successors
                         .iter()
                         .filter(|&s| {
                             s.target() == other
@@ -136,7 +136,7 @@ fn match_conditional_sequence(
                                     .iter()
                                     .all(|(p, _)| other_args.contains_key(p))
                         })
-                        .exactly_one()
+                        .exactly_one().is_ok()
                 {
                     if second_block.len() == 2 {
                         if let ast::Statement::Assign(assign) = &second_block[0] {
