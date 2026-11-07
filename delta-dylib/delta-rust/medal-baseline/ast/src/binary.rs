@@ -153,17 +153,17 @@ impl<'a: 'b, 'b> Reduce for Binary {
             }
             (
                 RValue::Binary(Binary {
-                    left:
-                        value @ RValue::Unary(Unary {
-                            operation: UnaryOperation::Not,
-                            ..
-                        }),
-                    right: RValue::Literal(Literal::Boolean(true)),
+                    left,
+                    right,
                     operation: BinaryOperation::And,
                 }),
                 RValue::Literal(Literal::Boolean(false)),
                 BinaryOperation::Or,
-            ) => value,
+            ) if matches!(*left, RValue::Unary(Unary { operation: UnaryOperation::Not, .. }))
+                && matches!(*right, RValue::Literal(Literal::Boolean(true))) => {
+                let RValue::Unary(Unary { value, .. }) = *left else { unreachable!() };
+                RValue::Unary(Unary { operation: UnaryOperation::Not, value })
+            }
             (left, right, BinaryOperation::Or) if left == right => left,
             // TODO: concat numbers
             (

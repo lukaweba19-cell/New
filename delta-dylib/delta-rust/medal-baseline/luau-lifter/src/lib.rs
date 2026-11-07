@@ -272,6 +272,7 @@ fn link_upvalues(
             _ => {}
         }
     }
+}
 
 
 // ============================================================================
@@ -316,5 +317,3 @@ pub extern "C" fn rust_decompile_luau(
 
 #[cfg(not(target_os = "ios"))]
 pub extern "C" fn rust_free_c_string(_ptr: *mut std::os::raw::c_char) {}
-
-}
