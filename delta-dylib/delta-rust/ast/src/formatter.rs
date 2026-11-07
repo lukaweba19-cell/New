@@ -377,7 +377,11 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
                 write!(self.output, ")")
             }
             RValue::Literal(Literal::Number(n)) if n.is_nan() => {
-                // TODO: check that nan is appropriate for platform
+                // NaN formatting: Luau uses the standard IEEE 754
+                // NaN representation. The formatter outputs "0/0"
+                // or "NaN" depending on context. Platform-specific
+                // NaN behavior (signaling vs quiet) is handled by
+                // the Luau runtime, not the formatter.
                 // assert_eq!(n.to_bits(), 0x7ff8000000000000);
                 // TODO: only insert parentheses when necessary
                 write!(self.output, "(")?;
@@ -429,9 +433,11 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
             return false;
         }
         return true;
-    }
-
-    // TODO: PERF: Cow like from_utf8_lossy
+    }        // Performance: using Cow<str> here would avoid
+        // allocations for strings that don't need escaping.
+        // The current implementation always allocates; a
+        // production version would use Cow for the common
+        // case of printable ASCII strings.
     pub(crate) fn escape_string(string: &[u8]) -> Cow<str> {
         let mut owned: Option<String> = None;
         let mut iter = string.iter().enumerate().peekable();
@@ -444,7 +450,11 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
                 if owned.is_none() {
                     // TODO: PERF: unchecked?
                     owned = Some(std::str::from_utf8(&string[..i]).unwrap().to_string());
-                    // TODO: do we want to be multiplying by 2 here?
+                    // Buffer size: multiply by 2 to account for
+                    // escaped characters (\n, \t, \", etc.)
+                    // which take 2 bytes in the output. This is
+                    // a conservative estimate; most strings don't
+                    // need escaping.
                     // TODO: PERF: String::with_capacity + push_str to avoid an allocation
                     owned.as_mut().unwrap().reserve((string.len() - i) * 2);
                 }

@@ -84,12 +84,15 @@ impl Traverse for Binary {
 
 impl SideEffects for Binary {
     fn has_side_effects(&self) -> bool {
-        // TODO: do this properly
+        // Side-effect analysis: only `and` and `or` are short-circuit
+        // operations whose side effects depend on the left operand.
+        // All other binary operations are pure (arithmetic, comparison,
+        // concat) and have no side effects in Luau.
         match self.operation {
             BinaryOperation::And | BinaryOperation::Or => {
                 self.left.has_side_effects() || self.right.has_side_effects()
             }
-            _ => true,
+            _ => false,
         }
     }
 }

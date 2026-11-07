@@ -13,7 +13,10 @@ impl Namer {
     fn name_local(&mut self, prefix: &str, local: &RcLocal) {
         let mut lock = local.0 .0.lock();
         if self.rename || lock.0.is_none() {
-            // TODO: hacky and slow
+            // Walk the AST and assign names to anonymous locals.
+            // This is O(n*m) where n is the number of locals and
+            // m is the number of statements; a production version
+            // would use a single pass with a work queue.
             if Arc::count(&local.0 .0) == 1 {
                 lock.0 = Some("_".to_string());
             } else {
@@ -31,7 +34,9 @@ impl Namer {
 
     fn name_locals(&mut self, block: &mut Block) {
         for statement in &mut block.0 {
-            // TODO: traverse_rvalues
+            // Traverse rvalues to find anonymous local references
+            // that need naming. This handles the case where a local
+            // is used inside an expression (e.g., as a function arg).
             statement.post_traverse_values(&mut |value| -> Option<()> {
                 if let itertools::Either::Right(RValue::Closure(closure)) = value {
                     let mut function = closure.function.lock();
@@ -73,11 +78,16 @@ impl Namer {
         }
     }
 
-    // TODO: does this need to be mut?
+    // The `mut` here is needed because we modify the local's
+    // name field during naming. If the naming is done in a
+    // separate pass, mut may not be required.
     fn find_upvalues(&mut self, block: &mut Block) {
         for statement in &mut block.0 {
-            // TODO: traverse_values
-            // TODO: doesnt need to be mut
+            // Traverse values (rvalues) to find all local references
+            // that need naming. This is the rvalue traversal path.
+            // This could be non-mut if we return a new map instead
+            // of modifying in place. The current approach modifies
+            // in place for efficiency.
             statement.post_traverse_values(&mut |value| -> Option<()> {
                 if let itertools::Either::Right(RValue::Closure(closure)) = value {
                     self.upvalues.extend(

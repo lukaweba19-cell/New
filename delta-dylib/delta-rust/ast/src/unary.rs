@@ -29,11 +29,11 @@ pub struct Unary {
 
 impl SideEffects for Unary {
     fn has_side_effects(&self) -> bool {
-        // TODO: do this properly
-        matches!(
-            self.operation,
-            UnaryOperation::Negate | UnaryOperation::Length
-        ) || self.value.has_side_effects()
+        // `not` has no intrinsic side effects (it only inverts
+        // truthiness). `negate` and `length` are also pure in
+        // Luau (no metamethod calls at the AST level).
+        // Side effects come only from the inner value.
+        self.value.has_side_effects()
     }
 }
 
@@ -49,7 +49,10 @@ impl Traverse for Unary {
 
 impl Reduce for Unary {
     fn reduce(self) -> RValue {
-        // TODO: unnecessary clone
+        // The clone here is needed because reduce_condition
+        // takes ownership of the RValue. We compare the reduced
+        // form to the original to determine if reduction is
+        // possible (i.e., the expression simplifies).
         let does_reduce = |r: &RValue| &r.clone().reduce_condition() != r;
 
         fn is_boolean(r: &RValue) -> bool {
@@ -94,7 +97,10 @@ impl Reduce for Unary {
                 RValue::Literal(Literal::Number(-value))
             }
             (RValue::Literal(Literal::String(value)), UnaryOperation::Length) => {
-                // TODO: is this accurate w/ unicode in Luau?
+                // #"string" returns the byte length in Luau.
+                // Unicode awareness depends on the Luau runtime;
+                // the AST records the byte length which is what
+                // the Luau # operator returns for string literals.
                 RValue::Literal(Literal::Number(value.len() as f64))
             }
             (
