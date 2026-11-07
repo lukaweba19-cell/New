@@ -57,8 +57,7 @@ impl<'a> Inliner<'a> {
                                     operation,
                                 }) if operation.is_comparator()
                                     && left.has_side_effects()
-                                    && if let  ast::RValue::Local(local)  = &**right { true } else { false }
-                                    && local == read =>
+                                    && if let  ast::RValue::Local(local)  = &**right { local == read } else { false } =>
                                 {
                                     *right = std::mem::replace(
                                         left,
@@ -185,21 +184,22 @@ impl<'a> Inliner<'a> {
 
                     if let ast::Statement::Assign(assign) = &block[stat_index]
                         && assign.right.iter().exactly_one().is_ok()
-                        && { let new_rvalue = assign.right.iter().exactly_one().unwrap();
-                            true }
+                        && true
                     {
+                        let new_rvalue = assign.right.iter().exactly_one().unwrap();
                         let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                             || new_rvalue
                                 .values_read()
                                 .iter()
                                 .any(|v| self.upvalue_to_group.contains_key(*v));
                         if !new_rvalue_has_side_effects || allow_side_effects {
+                            let read = stat_to_values_read[index].clone();
                             if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
                                 && stat_to_values_read[index].is_some()
-                                    && { let read = stat_to_values_read[index].clone(); true }
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(local))
+                                && read.iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
                             {
+                                let read = stat_to_values_read[index].clone();
+                                let read = read.iter_mut().find(|l| l.as_ref() == Some(local)).unwrap();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
@@ -389,9 +389,9 @@ impl<'a> Inliner<'a> {
 
                         if let ast::Statement::Assign(assign) = &block[stat_index]
                             && assign.right.iter().exactly_one().is_ok()
-                            && { let new_rvalue = assign.right.iter().exactly_one().unwrap();
-                                true }
+                            && true
                         {
+                            let new_rvalue = assign.right.iter().exactly_one().unwrap();
                             let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                                 || new_rvalue
                                     .values_read()
@@ -401,9 +401,8 @@ impl<'a> Inliner<'a> {
                                 && assign.left.iter().exactly_one().is_ok()
                             {
                                 let local = assign.left.iter().exactly_one().unwrap();
-                                if let Some(read) = arg_to_values_read[index]
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(&local))
+                                let read = arg_to_values_read[index].clone();
+                                if let Some(read) = read.iter_mut().find(|l| l.as_ref() == Some(&local))
                                 {
                                     let mut new_rvalue = Some(
                                     block[stat_index]
