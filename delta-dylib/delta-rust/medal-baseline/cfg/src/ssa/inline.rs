@@ -57,7 +57,7 @@ impl<'a> Inliner<'a> {
                                     operation,
                                 }) if operation.is_comparator()
                                     && left.has_side_effects()
-                                    && if let  ast::RValue::Local(ref local)  = right { true } else { false }
+                                    && if let  ast::RValue::Local(local)  = &*right { true } else { false }
                                     && local == read =>
                                 {
                                     *right = std::mem::replace(
@@ -398,13 +398,14 @@ impl<'a> Inliner<'a> {
                                     .iter()
                                     .any(|v| self.upvalue_to_group.contains_key(*v));
                             if !new_rvalue_has_side_effects
-                                && if let  Ok(ast::LValue::Local(local))  =  { true } else { false }
-                                    &assign.left.iter().exactly_one()
-                                && if let  Some(read)  = arg_to_values_read[index] { true } else { false }
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(local))
+                                && assign.left.iter().exactly_one().is_ok()
                             {
-                                let mut new_rvalue = Some(
+                                let local = assign.left.iter().exactly_one().unwrap();
+                                if let Some(read) = arg_to_values_read[index]
+                                    .iter_mut()
+                                    .find(|l| l.as_ref() == Some(&local))
+                                {
+                                    let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
                                         .unwrap()
@@ -641,4 +642,5 @@ pub fn inline(
     for block in function.blocks_mut() {
         block.retain(|s| s.as_empty().is_none());
     }
+}
 }

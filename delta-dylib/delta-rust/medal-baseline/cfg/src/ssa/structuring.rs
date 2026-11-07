@@ -148,8 +148,7 @@ fn match_conditional_sequence(
                                     == values_written[0].clone().into()
                             {
                                 let valid = if other_args.len() == 1
-                                    && if let  Ok((_, ast::RValue::Local(local)))  =  { true } else { false }
-                                        edge_to_other.weight().arguments.iter().exactly_one()
+                                    && if let  Ok((_, ast::RValue::Local(local)))  = edge_to_other.weight().arguments.iter().exactly_one() { true } else { false }
                                     && local == values_written[0]
                                 {
                                     true

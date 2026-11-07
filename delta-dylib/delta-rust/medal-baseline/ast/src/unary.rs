@@ -85,7 +85,7 @@ impl Reduce for Unary {
             }
             (
                 RValue::Unary(Unary {
-                    Box::new(value),
+                    value,
                     operation: UnaryOperation::Not,
                 }),
                 UnaryOperation::Not,
@@ -217,11 +217,13 @@ impl Reduce for Unary {
                     .reduce_condition(),
                 )
             }
-            (value, operation) => Self {
-                value: Box::new(value),
-                operation,
+            (value, operation) => {
+                let v = Self {
+                    value: Box::new(value),
+                    operation,
+                };
+                v.into()
             }
-            .into(),
         }
     }
 
@@ -235,7 +237,7 @@ impl Reduce for Unary {
             }
             (
                 RValue::Unary(Unary {
-                    Box::new(value),
+                    value,
                     operation: UnaryOperation::Not,
                 }),
                 UnaryOperation::Not,
