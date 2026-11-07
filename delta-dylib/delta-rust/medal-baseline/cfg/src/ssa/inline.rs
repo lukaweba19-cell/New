@@ -183,19 +183,22 @@ impl<'a> Inliner<'a> {
                     }
 
                     if let ast::Statement::Assign(assign) = &block[stat_index]
-                        && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
+                        && assign.right.iter().exactly_one().is_ok()
                     {
+                        let new_rvalue = assign.right.iter().exactly_one().unwrap();
                         let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                             || new_rvalue
                                 .values_read()
                                 .iter()
                                 .any(|v| self.upvalue_to_group.contains_key(*v));
                         if !new_rvalue_has_side_effects || allow_side_effects {
+                            let read = stat_to_values_read[index].clone();
                             if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
-                                && if let  Some(read)  = stat_to_values_read[index] { true } else { false }
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(local))
+                                && stat_to_values_read[index].is_some()
+                                && read.iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
                             {
+                                let read = stat_to_values_read[index].clone();
+                                let read = read.iter_mut().find(|l| l.as_ref() == Some(local)).unwrap();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
