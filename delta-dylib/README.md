@@ -150,25 +150,38 @@ encoding key (203). To use it from a Roblox process:
 
 The following components need to be completed to get a fully working executor:
 
-1. **Dylib loading/injection into Roblox** — How the dylib gets loaded into
+1. **Rust build fix (blocker)** — The medal2-baseline Rust code uses
+   `#![feature(box_patterns)]` which was **removed from Rust**. The
+   `luau-lifter` crate (and its deps `ast`, `cfg`, `restructure`) need source
+   fixes to compile on current Rust. The `box` pattern syntax must be replaced:
+   - `box expr` as construction → `Box::new(expr)`
+   - `box pattern` in matches → just `pattern` (match ergonomics bind by ref,
+     so usages of the bound variable may need `&` or `*` adjustments)
+   - `#![feature(box_patterns)]` and other feature gates → removed
+   A fix script (`/tmp/fix_box.py`) was used during development but produced
+   incomplete results. Manual fixes are needed at ~13 locations across
+   `ast/src/binary.rs`, `ast/src/formatter.rs`, `ast/src/type_system.rs`,
+   `ast/src/unary.rs`, `cfg/src/ssa/inline.rs`, `cfg/src/ssa/structuring.rs`.
+
+2. **Dylib loading/injection into Roblox** — How the dylib gets loaded into
    the Roblox process. This is app-specific and not covered here.
 
-2. **Roblox script bytecode extraction** — Getting the raw Luau bytecode from
+3. **Roblox script bytecode extraction** — Getting the raw Luau bytecode from
    the Roblox client. The Roblox app caches scripts; the path to extract them
    is platform-specific.
 
-3. **Executor API registration** — The protected table that maps Luau-facing
+4. **Executor API registration** — The protected table that maps Luau-facing
    API names to native functions. The plaintext names were not recovered; only
    the pattern (split-pointer indirect calls) is known.
 
-4. **UI layer** — The recovered assets (`assets/` from `gloop/dlt.zip`) give
+5. **UI layer** — The recovered assets (`assets/` from `gloop/dlt.zip`) give
    the artwork, but no UI code is reconstructed.
 
-5. **Network/transport** — If the executor needs to fetch scripts from a
+6. **Network/transport** — If the executor needs to fetch scripts from a
    server, the WebSocket/HTTP transport (ixwebsocket, cpp-httplib) from the
    original binary would need to be reimplemented.
 
-6. **Lua 5.1 deserializer** — The `lua51-deserializer/` crate exists in the
+7. **Lua 5.1 deserializer** — The `lua51-deserializer/` crate exists in the
    workspace but is for Lua 5.1 bytecode (older format), not Luau. The main
    decompiler is `luau-lifter/`.
 
