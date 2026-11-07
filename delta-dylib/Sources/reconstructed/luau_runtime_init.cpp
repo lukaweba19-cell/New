@@ -17,6 +17,12 @@ struct LuauFlagNode {
 extern LuauFlagNode* g_luau_boolean_flags; // native 0xf011c0
 extern LuauFlagNode* g_luau_integer_flags; // native 0xf011c8
 
+// Definitions for the flag list heads. The native binary zeroes these at
+// startup and populates them during Luau runtime initialization; until then
+// the lists are empty and lookups simply return no match.
+LuauFlagNode* g_luau_boolean_flags = nullptr;
+LuauFlagNode* g_luau_integer_flags = nullptr;
+
 // Native 0x137d0. The routine searches both flag lists and updates every node
 // whose name matches. The first argument is ABI residue/return passthrough.
 void reconstructed_set_luau_flag_override(const char* name,
