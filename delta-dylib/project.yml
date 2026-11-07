@@ -28,6 +28,8 @@ targets:
         buildPhase: sources
       - path: Resources/assets
         buildPhase: resources
+      - path: Resources/ui.lua
+        buildPhase:sources
     settings:
       base:
         PRODUCT_NAME: libDeltaDecompiler
