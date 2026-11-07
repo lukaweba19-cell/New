@@ -48,9 +48,14 @@ jobs:
       - name: Build Rust static library (iOS arm64)
         run: |
           cd delta-dylib/delta-rust/medal-baseline
-          rustc --version
-          cargo --version
-          cargo --version && rustc --version && cargo check --target aarch64-apple-ios -p luau-lifter && cargo build --release --lib --target aarch64-apple-ios -p luau-lifter
+          echo "=== PATH ===" && echo "$PATH"
+          echo "=== which cargo/rustc ===" && which cargo && which rustc
+          echo "=== rustc version ===" && rustc --version
+          echo "=== cargo version ===" && cargo --version
+          echo "=== rustup show ===" && rustup show
+          echo "=== installed targets ===" && rustup target list --installed
+          echo "=== cargo check ===" && cargo check --target aarch64-apple-ios -p luau-lifter 2>&1; echo "cargo check exit: $?"
+          echo "=== cargo build ===" && cargo build --release --lib --target aarch64-apple-ios -p luau-lifter 2>&1; echo "cargo build exit: $?"
           LIB=$(find target -name "libluau_lifter.a" -type f | head -1)
           if [ -z "$LIB" ]; then
             echo "ERROR: libluau_lifter.a not found"
