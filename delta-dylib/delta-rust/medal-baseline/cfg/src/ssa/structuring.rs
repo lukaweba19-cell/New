@@ -180,7 +180,7 @@ fn match_conditional_sequence(
         let (then_edge, else_edge) = first_terminator;
         if function.predecessor_blocks(then_edge.target()).count() == 1
             && then_edge.weight().arguments.is_empty()
-            && if let else_args = else_edge { true } else { false }
+            && matches!(else_edge, else_args)
                 .weight()
                 .arguments
                 .iter()
@@ -221,7 +221,7 @@ fn match_conditional_sequence(
             }
         } else if function.predecessor_blocks(else_edge.target()).count() == 1
             && else_edge.weight().arguments.is_empty()
-            && if let then_args = then_edge { true } else { false }
+            && matches!(then_edge, then_args)
                 .weight()
                 .arguments
                 .iter()
@@ -373,7 +373,7 @@ fn make_bool_conditional(
     let block = function.block_mut(node).unwrap();
     let r#if = block.last_mut().unwrap().as_if_mut().unwrap();
     if let ast::RValue::Literal(ast::Literal::Boolean(then_value)) = then_value
-        && if let  ast::RValue::Literal(ast::Literal::Boolean(else_value))  = else_value { true } else { false }
+        && matches!(else_value, ast::RValue::Literal(ast::Literal::Boolean(else_value)))
         && then_value != else_value
     {
         let cond = ast::Unary::new(
@@ -454,8 +454,8 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
             && if let  Some(assign)  = single_assign(function.block(assigner).unwrap()) { true } else { false }
             // TODO: allow multiple unused (excl. first) locals in left
             && assign.left.len() == 1 && assign.right.len() == 1
-            && if let  ast::LValue::Local(assigned_local)  = &assign.left[0] { true } else { false }
-            && next_args.len() == 1 && if let  Ok((param, ast::RValue::Local(arg)))  = edge_to_next.weight().arguments.iter().exactly_one() { true } else { false }
+            && matches!(&assign.left[0], ast::LValue::Local(assigned_local))
+            && next_args.len() == 1 && matches!(edge_to_next.weight().arguments.iter().exactly_one(), Ok((param, ast::RValue::Local(arg))))
             && arg == assigned_local
         {
             // TODO: make sure assigned_local is only used in the assigner and it's params to next
@@ -522,7 +522,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(then_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let else_args = else_edge { true } else { false }
+            && matches!(else_edge, else_args)
                 .weight()
                 .arguments
                 .iter()
@@ -571,7 +571,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(else_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let then_args = then_edge { true } else { false }
+            && matches!(then_edge, then_args)
                 .weight()
                 .arguments
                 .iter()
@@ -626,8 +626,8 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
             && if let  Some(else_assign)  = single_assign(function.block(else_edge.target()).unwrap()) { true } else { false }
             // TODO: allow multiple unused (excl. first) locals in left
             && else_assign.left.len() == 1 && else_assign.right.len() == 1
-            && if let  Ok((then_param, ast::RValue::Local(then_arg)))  = then_edge.weight().arguments.iter().exactly_one() { true } else { false }
-            && if let  Ok((else_param, ast::RValue::Local(else_arg)))  = else_edge.weight().arguments.iter().exactly_one() { true } else { false }
+            && matches!(then_edge.weight().arguments.iter().exactly_one(), Ok((then_param, ast::RValue::Local(then_arg))))
+            && matches!(else_edge.weight().arguments.iter().exactly_one(), Ok((else_param, ast::RValue::Local(else_arg))))
             && then_param == else_param
             && then_assign.left[0].as_local() == Some(then_arg)
             && else_assign.left[0].as_local() == Some(else_arg)
@@ -847,7 +847,7 @@ fn try_remove_unnecessary_condition(function: &mut Function, node: NodeIndex) ->
     let block = function.block(node).unwrap();
     if !block.is_empty()
         && block.last().unwrap().as_if().is_some()
-        && if let Some((then_edge, else_edge)) = function.conditional_edges(node) { true } else { false }
+        && matches!(function.conditional_edges(node), Some((then_edge, else_edge)))
         && then_edge.target() == else_edge.target()
         && then_edge.weight().arguments == else_edge.weight().arguments
     {
@@ -915,7 +915,7 @@ pub fn structure_jumps(function: &mut Function, dominators: &Dominators<NodeInde
         // we call function.remove_block, that might've resulted in node being removed
         if function.block(node).is_some()
             && if let  Some(jump)  = function.unconditional_edge(node) { true } else { false }
-            && if let jump_target = jump.target() { true } else { false }
+            && matches!(jump.target(), jump_target)
             && jump_target != node
             && !is_for_next(function, jump_target)
         {

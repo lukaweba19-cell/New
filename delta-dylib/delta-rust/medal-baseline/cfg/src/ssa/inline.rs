@@ -499,7 +499,7 @@ pub fn inline(
                 if let ast::Statement::Assign(assign) = &block[stat_index]
                     && assign.left.len() == 1
                     && assign.right.len() == 1
-                    && if let  ast::LValue::Local(local)  = &assign.left[0] { true } else { false }
+                    && matches!(&assign.left[0], ast::LValue::Local(local))
                 {
                     let rvalue = &assign.right[0];
                     let has_side_effects = rvalue.has_side_effects();
@@ -545,13 +545,13 @@ pub fn inline(
                     && assign.left.len() == 1
                     && assign.right.len() == 1
                     && assign.right[0].as_table().is_some()
-                    && if let  ast::LValue::Local(object_local)  = &assign.left[0] { true } else { false }
+                    && matches!(&assign.left[0], ast::LValue::Local(object_local))
                 {
                     let table_index = i;
                     let object_local = object_local.clone();
                     i += 1;
                     while i < block.len()
-                        && if let  ast::Statement::Assign(field_assign)  = &block[i] { true } else { false }
+                        && matches!(&block[i], ast::Statement::Assign(field_assign))
                         && field_assign.left.len() == 1
                         && field_assign.right.len() == 1
                         && if let ast::LValue::Index(ast::Index {
