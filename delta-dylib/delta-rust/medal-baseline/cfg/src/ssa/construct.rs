@@ -406,28 +406,22 @@ impl<'a> SsaConstructor<'a> {
                 let assign = block[index].as_assign().unwrap();
                 if assign.left.len() == 1
                     && assign.right.len() == 1
-                    && assign.left[0].as_local().is_some()
-                    && assign.right[0].as_local().is_some()
+                    && if let  Some(from)  = assign.left[0].as_local() { true } else { false }
+                    && if let from_old = &self.old_locals[from] { true } else { false }
+                    && !self.new_upvalues_in.contains_key(from_old)
+                    && !self.upvalues_passed.contains_key(from_old)
+                    && if let  Some(mut to)  = assign.right[0].as_local() { true } else { false }
                 {
-                    let from = assign.left[0].as_local().unwrap();
-                    let from_old = &self.old_locals[&from];
-                    if !self.new_upvalues_in.contains_key(from_old)
-                        && !self.upvalues_passed.contains_key(from_old)
-                        && !self.new_upvalues_in.contains_key(&self.old_locals[&from])
-                        && !self.upvalues_passed.contains_key(&self.old_locals[&from])
+                    // TODO: STYLE: this name lol
+                    while let Some(to_to) = self.local_map.get(to) {
+                        to = to_to;
+                    }
+                    let to_old = &self.old_locals[to];
+                    if !self.new_upvalues_in.contains_key(to_old)
+                        && !self.upvalues_passed.contains_key(to_old)
                     {
-                        // TODO: STYLE: this name lol
-                        let mut to = assign.right[0].as_local().unwrap();
-                        while let Some(to_to) = self.local_map.get(&to) {
-                            to = to_to;
-                        }
-                        let to_old = &self.old_locals[&to];
-                        if !self.new_upvalues_in.contains_key(to_old)
-                            && !self.upvalues_passed.contains_key(to_old)
-                        {
-                            self.local_map.insert(from.clone(), to.clone());
-                            block[index] = ast::Empty {}.into();
-                        }
+                        self.local_map.insert(from.clone(), to.clone());
+                        block[index] = ast::Empty {}.into();
                     }
                 }
             }
@@ -526,9 +520,8 @@ impl<'a> SsaConstructor<'a> {
                 if let Some(assign) = statement.as_assign()
                     && assign.left.len() == 1
                     && assign.right.len() == 1
-                    && assign.left[0].as_local().cloned().is_some()
-                    && { let local = assign.left[0].as_local().cloned().unwrap();
-                        assign.right[0].as_closure().is_some() }
+                    && if let  Some(local)  = assign.left[0].as_local().cloned() { true } else { false }
+                    && assign.right[0].as_closure().is_some()
                 {
                     let new_local = RcLocal::default();
                     self.old_locals.insert(new_local.clone(), local.clone());
