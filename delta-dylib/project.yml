@@ -32,7 +32,7 @@ targets:
       base:
         PRODUCT_NAME: libDeltaDecompiler
         PRODUCT_BUNDLE_IDENTIFIER: com.delta.executor.dylib
-        DYLIB_INSTALL_NAME_BASE: @rpath
+        DYLIB_INSTALL_NAME_BASE: "@rpath"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
         CLANG_ENABLE_OBJC_ARC: YES
         MTL_FAST_MATH: YES
