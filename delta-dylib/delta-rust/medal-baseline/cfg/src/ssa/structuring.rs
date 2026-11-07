@@ -105,7 +105,7 @@ fn simplify_condition(function: &mut Function, node: NodeIndex) -> bool {
 
 fn single_assign(block: &ast::Block) -> Option<&ast::Assign> {
     if block.len() == 1
-        && if let  Some(assign)  = block.last().unwrap().as_assign() { true } else { false }
+        && let Some(assign) = block.last().unwrap().as_assign()
         && assign.left.len() == 1
     {
         Some(assign)
@@ -127,7 +127,7 @@ fn match_conditional_sequence(
             let second_block = function.block(second_conditional).unwrap();
             if let Some(second_conditional_if) = second_block.last().and_then(|s| s.as_if()) {
                 if second_conditional_successors.len() == 2
-                    && if let  Ok(edge_to_other)  = second_conditional_successors { true } else { false }
+                    && second_conditional_successors
                         .iter()
                         .filter(|&s| {
                             s.target() == other
@@ -136,7 +136,7 @@ fn match_conditional_sequence(
                                     .iter()
                                     .all(|(p, _)| other_args.contains_key(p))
                         })
-                        .exactly_one()
+                        .count() == 1
                 {
                     if second_block.len() == 2 {
                         if let ast::Statement::Assign(assign) = &second_block[0] {
@@ -148,8 +148,9 @@ fn match_conditional_sequence(
                                     == values_written[0].clone().into()
                             {
                                 let valid = if other_args.len() == 1
-                                    && if let  Ok((_, ast::RValue::Local(local)))  =  { true } else { false }
-                                        edge_to_other.weight().arguments.iter().exactly_one()
+                                    && edge_to_other.weight().arguments.iter().count() == 1
+                                    && let (_, ast::RValue::Local(local)) =
+                                        edge_to_other.weight().arguments.iter().next().unwrap()
                                     && local == values_written[0]
                                 {
                                     true
@@ -180,7 +181,7 @@ fn match_conditional_sequence(
         let (then_edge, else_edge) = first_terminator;
         if function.predecessor_blocks(then_edge.target()).count() == 1
             && then_edge.weight().arguments.is_empty()
-            && if let else_args = else_edge { true } else { false }
+            && matches!(else_edge, else_args)
                 .weight()
                 .arguments
                 .iter()
@@ -221,7 +222,7 @@ fn match_conditional_sequence(
             }
         } else if function.predecessor_blocks(else_edge.target()).count() == 1
             && else_edge.weight().arguments.is_empty()
-            && if let then_args = then_edge { true } else { false }
+            && matches!(then_edge, then_args)
                 .weight()
                 .arguments
                 .iter()
@@ -373,7 +374,7 @@ fn make_bool_conditional(
     let block = function.block_mut(node).unwrap();
     let r#if = block.last_mut().unwrap().as_if_mut().unwrap();
     if let ast::RValue::Literal(ast::Literal::Boolean(then_value)) = then_value
-        && if let  ast::RValue::Literal(ast::Literal::Boolean(else_value))  = else_value { true } else { false }
+        && matches!(else_value, ast::RValue::Literal(ast::Literal::Boolean(else_value)))
         && then_value != else_value
     {
         let cond = ast::Unary::new(
@@ -420,7 +421,7 @@ fn make_bool_conditional(
             let cond =
                 std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()).reduce_condition();
             if let ast::RValue::Unary(ast::Unary {
-                Box::new(value),
+                ref value,
                 operation: ast::UnaryOperation::Not,
             }) = cond
             {
@@ -454,7 +455,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
             && if let  Some(assign)  = single_assign(function.block(assigner).unwrap()) { true } else { false }
             // TODO: allow multiple unused (excl. first) locals in left
             && assign.left.len() == 1 && assign.right.len() == 1
-            && if let  ast::LValue::Local(assigned_local)  = &assign.left[0] { true } else { false }
+            && matches!(&assign.left[0], ast::LValue::Local(assigned_local))
             && next_args.len() == 1 && if let  Ok((param, ast::RValue::Local(arg)))  = edge_to_next.weight().arguments.iter().exactly_one() { true } else { false }
             && arg == assigned_local
         {
@@ -522,7 +523,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(then_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let else_args = else_edge { true } else { false }
+            && matches!(else_edge, else_args)
                 .weight()
                 .arguments
                 .iter()
@@ -571,7 +572,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(else_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let then_args = then_edge { true } else { false }
+            && matches!(then_edge, then_args)
                 .weight()
                 .arguments
                 .iter()
@@ -616,18 +617,24 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 false
             }
         } else if function.predecessor_blocks(then_edge.target()).exactly_one().is_ok()
-            && if let  Ok(then_next)  = function.successor_blocks(then_edge.target()).exactly_one() { true } else { false }
-            && function.predecessor_blocks(else_edge.target()).exactly_one().is_ok()
-            && if let  Ok(else_next)  = function.successor_blocks(else_edge.target()).exactly_one() { true } else { false }
+            && function.successor_blocks(then_edge.target()).count() == 1
+            && function.predecessor_blocks(else_edge.target()).count() == 1
+            && function.successor_blocks(else_edge.target()).count() == 1
             && then_next == else_next
-            && if let  Some(then_assign)  = single_assign(function.block(then_edge.target()).unwrap()) { true } else { false }
+            && let Some(then_assign) = single_assign(function.block(then_edge.target()).unwrap())
             // TODO: allow multiple unused (excl. first) locals in left
             && then_assign.left.len() == 1 && then_assign.right.len() == 1
-            && if let  Some(else_assign)  = single_assign(function.block(else_edge.target()).unwrap()) { true } else { false }
+            && let Some(else_assign) = single_assign(function.block(else_edge.target()).unwrap())
             // TODO: allow multiple unused (excl. first) locals in left
             && else_assign.left.len() == 1 && else_assign.right.len() == 1
-            && if let  Ok((then_param, ast::RValue::Local(then_arg)))  = then_edge.weight().arguments.iter().exactly_one() { true } else { false }
-            && if let  Ok((else_param, ast::RValue::Local(else_arg)))  = else_edge.weight().arguments.iter().exactly_one() { true } else { false }
+            && let Some((then_param, ast::RValue::Local(then_arg))) =
+                then_edge.weight().arguments.iter().next().map(|(p, a)| {
+                    (p.clone(), if let ast::RValue::Local(l) = a { Some(l.clone()) } else { None })
+                }).and_then(|(p, a)| a.map(|l| (p, l)))
+            && let Some((else_param, ast::RValue::Local(else_arg))) =
+                else_edge.weight().arguments.iter().next().map(|(p, a)| {
+                    (p.clone(), if let ast::RValue::Local(l) = a { Some(l.clone()) } else { None })
+                }).and_then(|(p, a)| a.map(|l| (p, l)))
             && then_param == else_param
             && then_assign.left[0].as_local() == Some(then_arg)
             && else_assign.left[0].as_local() == Some(else_arg)
@@ -687,14 +694,14 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .is_ok()
             && function.successor_blocks(then_target).next().is_none()
             && function.successor_blocks(else_target).next().is_none()
-            && if let Ok(ast::Statement::Return(ast::Return {
-                values: then_values,
-            })) = function.block(then_target).unwrap().iter().exactly_one() { true } else { false }
-            && if let  Ok(then_value)  = then_values.iter().exactly_one() { true } else { false }
-            && if let Ok(ast::Statement::Return(ast::Return {
-                values: else_values,
-            })) = function.block(else_target).unwrap().iter().exactly_one() { true } else { false }
-            && if let  Ok(else_value)  = else_values.iter().exactly_one() { true } else { false }
+            && function.block(then_target).unwrap().iter().count() == 1
+            && let Some(ast::Statement::Return(ast::Return { values: then_values })) =
+                function.block(then_target).unwrap().iter().next()
+            && then_values.iter().count() == 1
+            && function.block(else_target).unwrap().iter().count() == 1
+            && let Some(ast::Statement::Return(ast::Return { values: else_values })) =
+                function.block(else_target).unwrap().iter().next()
+            && else_values.iter().count() == 1
         {
             // TODO: unnecessary clones
             let then_value = then_value.clone();
@@ -723,11 +730,11 @@ fn match_method_call(call: &ast::Call) -> Option<(&ast::RValue, &str)> {
     // TODO: make sure `a:method with space()` doesnt happen
     if !call.arguments.is_empty()
         && !call.arguments[0].has_side_effects()
-        && if let Some(ast::Index {
-            Box::new(left),
+        && let Some(ast::Index {
+            ref left,
             right: ast::RValue::Literal(ast::Literal::String(index)),
-        }) = call.value.as_index() { true } else { false }
-        && left == &call.arguments[0]
+        }) = call.value.as_index()
+        && **left == call.arguments[0]
     {
         if let Ok(index) = std::str::from_utf8(index) {
             Some((left, index))
@@ -845,7 +852,7 @@ fn try_remove_unnecessary_condition(function: &mut Function, node: NodeIndex) ->
     let block = function.block(node).unwrap();
     if !block.is_empty()
         && block.last().unwrap().as_if().is_some()
-        && if let Some((then_edge, else_edge)) = function.conditional_edges(node) { true } else { false }
+        && let Some((then_edge, else_edge)) = function.conditional_edges(node)
         && then_edge.target() == else_edge.target()
         && then_edge.weight().arguments == else_edge.weight().arguments
     {
@@ -913,7 +920,7 @@ pub fn structure_jumps(function: &mut Function, dominators: &Dominators<NodeInde
         // we call function.remove_block, that might've resulted in node being removed
         if function.block(node).is_some()
             && if let  Some(jump)  = function.unconditional_edge(node) { true } else { false }
-            && if let jump_target = jump.target() { true } else { false }
+            && matches!(jump.target(), jump_target)
             && jump_target != node
             && !is_for_next(function, jump_target)
         {
