@@ -27,6 +27,7 @@ jobs:
         with:
           toolchain: nightly
           targets: aarch64-apple-ios
+          components: rust-std
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -39,6 +40,12 @@ jobs:
 
       - name: Install XcodeGen
         run: brew install xcodegen
+
+      - name: Setup Xcode command line tools
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+          xcodebuild -version || true
+          clang --version || true
 
       - name: Build Rust static library (iOS arm64)
         run: |
