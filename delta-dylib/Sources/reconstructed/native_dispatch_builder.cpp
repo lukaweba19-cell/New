@@ -1,116 +1,97 @@
 // Implementation of build_native_dispatch() (native 0x2b21ec).
 // Constructs the 0xe0-byte (28-slot x 8-byte) NativeDispatch table.
 // Evidence-based reconstruction; not vendor original source.
+//
+// Native behavior (from 0x50c658 trace):
+//   1. mmap a 224-byte (0xe0) RW block
+//   2. fill it with a 28-entry system dispatch table
+//   3. store the pointer at global 0xf0d3e0
+//
+// The dispatch table entries are resolved at runtime from the loaded
+// process. In the native function these go through the protected address
+// arithmetic; here we collapse that to direct dlsym lookups.
 
 #include "native_dispatch.hpp"
 
 #include <cstdlib>
+#include <cstring>
 #include <dlfcn.h>
+#include <sys/mman.h>
 
-// The dispatch table is populated with function pointers resolved from the
-// loaded process. In the native function, these are looked up via dladdr /
-// dlsym against known symbols or through the dyld introspection hooks.
-//
-// The protected arithmetic that selects each slot has been collapsed here;
-// slot assignment is based on the recovered layout in native_dispatch.hpp.
+// Native 0x2b21ec allocates the dispatch block with mmap, then fills it.
+// We replicate the allocation shape but use calloc for the filling step.
 
-namespace {
-
-// Forward declarations for the functions we resolve. In the actual binary
-// these are resolved at runtime via dlsym/dladdr; here we rely on the
-// linker providing them.
-
-extern "C" {
-void* dyld_stub_binder(void); // placeholder
+static NativeDispatch* allocate_dispatch_block() {
+    // Native: mmap(nullptr, 0xe0, PROT_READ|PROT_WRITE,
+    //             MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+    void* block = mmap(nullptr, sizeof(NativeDispatch),
+                       PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (block == MAP_FAILED)
+        return nullptr;
+    std::memset(block, 0, sizeof(NativeDispatch));
+    return static_cast<NativeDispatch*>(block);
 }
 
-// Provide stub implementations for functions that may not be available
-// as real symbols during linking. The native dispatch stores raw function
-// pointers; if a symbol is unavailable the slot may hold nullptr or a
-// resolver stub.
-
+// Resolve a symbol from the loaded process. In the native path these are
+// addressed through the dispatch table's own slots (built up incrementally);
+// here we use RTLD_DEFAULT directly.
 static void* resolve_symbol(const char* name) {
-    // In the native path this uses dlsym(RTLD_DEFAULT, name) after
-    // resolving the handle through dyld_image_count/dyld_get_image_name
-    // iteration. For the reconstruction we use RTLD_DEFAULT directly.
-    void* ptr = nullptr;
-#if defined(__APPLE__)
-    // On iOS the symbol must be available; RTLD_DEFAULT works for
-    // exported symbols in the main executable and loaded images.
-    dlopen("/dev/null", RTLD_NOLOAD); // ensure RTLD_DEFAULT is initialized
-    ptr = dlsym(RTLD_DEFAULT, name);
-#endif
-    return ptr;
+    if (!name)
+        return nullptr;
+    dlopen("/dev/null", RTLD_NOLOAD);
+    return dlsym(RTLD_DEFAULT, name);
 }
-
-} // namespace
 
 NativeDispatch* build_native_dispatch() {
-    // Allocate the dispatch table (0xe0 = 224 bytes).
-    // In the native function this uses the malloc slot from a previously
-    // built dispatch or falls back to a direct allocation.
-    NativeDispatch* dispatch = static_cast<NativeDispatch*>(std::calloc(1, sizeof(NativeDispatch)));
+    NativeDispatch* dispatch = allocate_dispatch_block();
     if (!dispatch)
         return nullptr;
 
-    // Populate the 28 slots. The order matches the recovered layout in
-    // native_dispatch.hpp. Functions that are not independently resolved
-    // remain nullptr (the native code handles missing slots defensively).
+    // Populate the 28 slots in the recovered order from 0x50c658 trace:
+    //   0x00 signal      0x70 fread
+    //   0x08 realloc     0x78 malloc
+    //   0x10 ftell       0x80 dyld_image_count
+    //   0x18 reserved    0x88 chmod
+    //   0x20 pread       0x90 stat
+    //   0x28 dlopen      0x98 dlsym
+    //   0x30 dladdr      0xa0 fgets
+    //   0x38 reserved    0xa8 fseek
+    //   0x40 mprotect    0xb0 fwrite
+    //   0x48 memcpy      0xb8 fopen
+    //   0x50 memset      0xc0 dyld_get_image_name
+    //   0x58 fclose      0xc8 free
+    //   0x60 sysconf     0xd0 dyld_get_image_slide
+    //   0x68 remove      0xd8 mmap
 
-    // Slot 0x00 — signal
-    dispatch->signal_fn = resolve_symbol("__signal");
-    // Slot 0x08 — realloc
-    dispatch->realloc_fn = resolve_symbol("realloc");
-    // Slot 0x10 — ftell
-    dispatch->ftell_fn = resolve_symbol("ftell");
-    // Slot 0x18 — reserved
-    // Slot 0x20 — pread
-    dispatch->pread_fn = resolve_symbol("pread");
-    // Slot 0x28 — dlopen
-    dispatch->dlopen_fn = resolve_symbol("dlopen");
-    // Slot 0x30 — dladdr
-    dispatch->dladdr_fn = resolve_symbol("dladdr");
-    // Slot 0x38 — reserved
-    // Slot 0x40 — mprotect
-    dispatch->mprotect_fn = resolve_symbol("mprotect");
-    // Slot 0x48 — memcpy
-    dispatch->memcpy_fn = resolve_symbol("memcpy");
-    // Slot 0x50 — memset
-    dispatch->memset_fn = resolve_symbol("memset");
-    // Slot 0x58 — fclose
-    dispatch->fclose_fn = resolve_symbol("fclose");
-    // Slot 0x60 — sysconf
-    dispatch->sysconf_fn = resolve_symbol("sysconf");
-    // Slot 0x68 — remove
-    dispatch->remove_fn = resolve_symbol("remove");
-    // Slot 0x70 — fread
-    dispatch->fread_fn = resolve_symbol("fread");
-    // Slot 0x78 — malloc
-    dispatch->malloc_fn = resolve_symbol("malloc");
-    // Slot 0x80 — dyld_image_count
-    dispatch->dyld_image_count_fn = resolve_symbol("dyld_image_count");
-    // Slot 0x88 — chmod
-    dispatch->chmod_fn = resolve_symbol("chmod");
-    // Slot 0x90 — stat
-    dispatch->stat_fn = resolve_symbol("stat");
-    // Slot 0x98 — dlsym
-    dispatch->dlsym_fn = resolve_symbol("dlsym");
-    // Slot 0xa0 — fgets
-    dispatch->fgets_fn = resolve_symbol("fgets");
-    // Slot 0xa8 — fseek
-    dispatch->fseek_fn = resolve_symbol("fseek");
-    // Slot 0xb0 — fwrite
-    dispatch->fwrite_fn = resolve_symbol("fwrite");
-    // Slot 0xb8 — fopen
-    dispatch->fopen_fn = resolve_symbol("fopen");
-    // Slot 0xc0 — dyld_get_image_name
-    dispatch->dyld_get_image_name_fn = resolve_symbol("dyld_get_image_name");
-    // Slot 0xc8 — free
-    dispatch->free_fn = resolve_symbol("free");
-    // Slot 0xd0 — dyld_get_image_slide
-    dispatch->dyld_get_image_slide_fn = resolve_symbol("dyld_get_image_slide");
-    // Slot 0xd8 — mmap
-    dispatch->mmap_fn = resolve_symbol("mmap");
+    dispatch->signal_fn                 = resolve_symbol("__signal");
+    dispatch->realloc_fn                = resolve_symbol("realloc");
+    dispatch->ftell_fn                  = resolve_symbol("ftell");
+    dispatch->reserved_18               = nullptr;
+    dispatch->pread_fn                  = resolve_symbol("pread");
+    dispatch->dlopen_fn                 = resolve_symbol("dlopen");
+    dispatch->dladdr_fn                 = resolve_symbol("dladdr");
+    dispatch->reserved_38               = nullptr;
+    dispatch->mprotect_fn               = resolve_symbol("mprotect");
+    dispatch->memcpy_fn                 = resolve_symbol("memcpy");
+    dispatch->memset_fn                 = resolve_symbol("memset");
+    dispatch->fclose_fn                 = resolve_symbol("fclose");
+    dispatch->sysconf_fn                = resolve_symbol("sysconf");
+    dispatch->remove_fn                 = resolve_symbol("remove");
+    dispatch->fread_fn                  = resolve_symbol("fread");
+    dispatch->malloc_fn                 = resolve_symbol("malloc");
+    dispatch->dyld_image_count_fn       = resolve_symbol("dyld_image_count");
+    dispatch->chmod_fn                  = resolve_symbol("chmod");
+    dispatch->stat_fn                   = resolve_symbol("stat");
+    dispatch->dlsym_fn                  = resolve_symbol("dlsym");
+    dispatch->fgets_fn                 = resolve_symbol("fgets");
+    dispatch->fseek_fn                  = resolve_symbol("fseek");
+    dispatch->fwrite_fn                 = resolve_symbol("fwrite");
+    dispatch->fopen_fn                  = resolve_symbol("fopen");
+    dispatch->dyld_get_image_name_fn    = resolve_symbol("dyld_get_image_name");
+    dispatch->free_fn                   = resolve_symbol("free");
+    dispatch->dyld_get_image_slide_fn   = resolve_symbol("dyld_get_image_vmaddr_slide");
+    dispatch->mmap_fn                   = resolve_symbol("mmap");
 
     return dispatch;
 }

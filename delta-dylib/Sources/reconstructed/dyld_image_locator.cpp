@@ -1,28 +1,31 @@
-// Control-flow-normalized reconstruction of native 0x3a8258 (find_loaded_image)
-// and native image_slide_for_path. Evidence-based; not vendor original source.
-
-#include "native_dispatch.hpp"
+// Control-flow-normalized reconstruction of native 0x3a8258.
+// Evidence-based pseudocode; not original vendor source.
 
 #include <cstdint>
 #include <cstring>
 
-// Global dispatch table built by build_native_dispatch() at 0xf0d3e0
-extern NativeDispatch* g_native_dispatch;
+// In the native function these callbacks are loaded through the 0xe0-byte
+// dispatch block at global 0xf0d3e0, and the protected arithmetic used to
+// address the fields has been collapsed here.
+using ImageCount = std::uint32_t (*)();
+using ImageName = const char* (*)(std::uint32_t);
 
-// dyld function typedefs
-using ImageCountFn = std::uint32_t (*)();
-using ImageNameFn = const char* (*)(std::uint32_t);
-using ImageSlideFn = std::intptr_t (*)(std::uint32_t);
+// Global dispatch built by build_native_dispatch() at 0xf0d3e0
+extern NativeDispatch* g_native_dispatch;
 
 // Native 0x3a8258: find_loaded_image
 // Searches loaded images for one whose name contains the needle string.
-// Uses the dispatch table's dyld_image_count and dyld_get_image_name slots.
+// The native function takes the image_count and image_name callbacks as
+// arguments (loaded from the dispatch block through protected arithmetic),
+// but we collapse that here to read from g_native_dispatch.
 const char* find_loaded_image(const char* needle) {
-    if (!g_native_dispatch || !needle)
+    if (!needle || !g_native_dispatch)
         return nullptr;
 
-    ImageCountFn image_count = reinterpret_cast<ImageCountFn>(g_native_dispatch->dyld_image_count_fn);
-    ImageNameFn image_name = reinterpret_cast<ImageNameFn>(g_native_dispatch->dyld_get_image_name_fn);
+    ImageCount image_count =
+        reinterpret_cast<ImageCount>(g_native_dispatch->dyld_image_count_fn);
+    ImageName image_name =
+        reinterpret_cast<ImageName>(g_native_dispatch->dyld_get_image_name_fn);
 
     if (!image_count || !image_name)
         return nullptr;
@@ -37,14 +40,18 @@ const char* find_loaded_image(const char* needle) {
 }
 
 // Native image_slide_for_path: given a loaded image path, returns its
-// ASLR slide via dyld_get_image_slide.
+// ASLR slide via dyld_get_image_vmaddr_slide.
 long image_slide_for_path(const char* path) {
-    if (!g_native_dispatch || !path)
+    if (!path || !g_native_dispatch)
         return 0;
 
-    ImageCountFn image_count = reinterpret_cast<ImageCountFn>(g_native_dispatch->dyld_image_count_fn);
-    ImageSlideFn image_slide = reinterpret_cast<ImageSlideFn>(g_native_dispatch->dyld_get_image_slide_fn);
-    ImageNameFn image_name = reinterpret_cast<ImageNameFn>(g_native_dispatch->dyld_get_image_name_fn);
+    using ImageSlide = std::intptr_t (*)(std::uint32_t);
+    ImageCount image_count =
+        reinterpret_cast<ImageCount>(g_native_dispatch->dyld_image_count_fn);
+    ImageSlide image_slide =
+        reinterpret_cast<ImageSlide>(g_native_dispatch->dyld_get_image_slide_fn);
+    ImageName image_name =
+        reinterpret_cast<ImageName>(g_native_dispatch->dyld_get_image_name_fn);
 
     if (!image_count || !image_slide || !image_name)
         return 0;

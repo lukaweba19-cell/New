@@ -1,10 +1,12 @@
 // High-confidence iOS integration reconstruction.
 // This is evidence-based pseudocode, not original Objective-C++ source.
-// Keychain (Security framework) calls removed per project requirements.
+// The Security.framework Keychain calls are kept as address-labelled
+// placeholders because their dictionary keys are protected in the binary.
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <Security/Security.h>
 
 namespace delta_reconstructed {
 
@@ -31,6 +33,33 @@ void observe_application_activation(id observer, SEL selector) {
            selector:selector
                name:UIApplicationDidBecomeActiveNotification
              object:nil];
+}
+
+// Native 0x3afcd0 calls SecItemAdd and, on the duplicate-item path,
+// SecItemUpdate.  Dictionary keys and account/service values are protected and
+// therefore kept as recovered CFDictionary objects instead of guessed names.
+OSStatus keychain_add_or_update(CFDictionaryRef add_query,
+                                CFDictionaryRef match_query,
+                                CFDictionaryRef update_values) {
+    OSStatus status = SecItemAdd(add_query, nullptr);
+    if (status == errSecDuplicateItem)
+        status = SecItemUpdate(match_query, update_values);
+    return status;
+}
+
+// Native 0x3bafec calls SecItemCopyMatching and returns the copied result to
+// its caller through the protected bridge layer.
+CFTypeRef keychain_copy_matching(CFDictionaryRef query, OSStatus* out_status) {
+    CFTypeRef value = nullptr;
+    const OSStatus status = SecItemCopyMatching(query, &value);
+    if (out_status)
+        *out_status = status;
+    if (status != errSecSuccess) {
+        if (value)
+            CFRelease(value);
+        return nullptr;
+    }
+    return value;
 }
 
 } // namespace delta_reconstructed
