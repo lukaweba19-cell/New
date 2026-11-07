@@ -54,7 +54,7 @@ jobs:
           echo "=== cargo version ===" && cargo --version
           echo "=== rustup show ===" && rustup show
           echo "=== installed targets ===" && rustup target list --installed
-          echo "=== cargo check ===" && cargo check --target aarch64-apple-ios -p luau-lifter 2>&1; echo "cargo check exit: $?"
+          echo "=== cargo check ===" && cargo check --lib --target aarch64-apple-ios -p luau-lifter 2>&1; echo "cargo check exit: $?"
           echo "=== cargo build ===" && cargo build --release --lib --target aarch64-apple-ios -p luau-lifter 2>&1; echo "cargo build exit: $?"
           LIB=$(find target -name "libluau_lifter.a" -type f | head -1)
           if [ -z "$LIB" ]; then
