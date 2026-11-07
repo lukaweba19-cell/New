@@ -127,7 +127,7 @@ fn match_conditional_sequence(
             let second_block = function.block(second_conditional).unwrap();
             if let Some(second_conditional_if) = second_block.last().and_then(|s| s.as_if()) {
                 if second_conditional_successors.len() == 2
-                    && if let  Ok(edge_to_other)  = second_conditional_successors { true } else { false }
+                    && matches!(second_conditional_successors, Ok(edge_to_other))
                         .iter()
                         .filter(|&s| {
                             s.target() == other
@@ -148,7 +148,7 @@ fn match_conditional_sequence(
                                     == values_written[0].clone().into()
                             {
                                 let valid = if other_args.len() == 1
-                                    && if let  Ok((_, ast::RValue::Local(local)))  = edge_to_other.weight().arguments.iter().exactly_one() { true } else { false }
+                                    && matches!(edge_to_other.weight().arguments.iter().exactly_one(), Ok((_, ast::RValue::Local(local))))
                                     && local == values_written[0]
                                 {
                                     true
@@ -689,7 +689,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
             && if let Ok(ast::Statement::Return(ast::Return {
                 values: then_values,
             })) = function.block(then_target).unwrap().iter().exactly_one() { true } else { false }
-            && if let  Ok(then_value)  = then_values.iter().exactly_one() { true } else { false }
+            && matches!(then_values.iter().exactly_one(), Ok(then_value))
             && if let Ok(ast::Statement::Return(ast::Return {
                 values: else_values,
             })) = function.block(else_target).unwrap().iter().exactly_one() { true } else { false }
