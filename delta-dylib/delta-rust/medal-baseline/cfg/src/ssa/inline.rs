@@ -387,7 +387,7 @@ impl<'a> Inliner<'a> {
                         }
 
                         if let ast::Statement::Assign(assign) = &block[stat_index]
-                            && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
+                            && let Ok(new_rvalue) = assign.right.iter().exactly_one()
                         {
                             let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                                 || new_rvalue
