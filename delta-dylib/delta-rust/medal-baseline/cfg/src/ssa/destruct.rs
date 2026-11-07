@@ -856,11 +856,17 @@ impl<'a> Destructor<'a> {
 
                 for (param, arg) in args {
                     let temp_local = RcLocal::default();
-                    if let ast::RValue::Local(arg) = arg
-                        && if let  Some(group)  = self.upvalue_to_group.get(arg) { true } else { false }
-                    {
-                        self.upvalue_to_group
-                            .insert(temp_local.clone(), group.clone());
+                    let should_replace = match &arg {
+                        ast::RValue::Local(inner_arg) => self.upvalue_to_group.get(inner_arg).is_some(),
+                        _ => false,
+                    };
+                    if should_replace {
+                        if let ast::RValue::Local(inner_arg) = &arg {
+                            if let Some(group) = self.upvalue_to_group.get(inner_arg) {
+                                self.upvalue_to_group
+                                    .insert(temp_local.clone(), group.clone());
+                            }
+                        }
                     }
 
                     parallel_assign.left.push(temp_local.clone().into());

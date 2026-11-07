@@ -104,14 +104,14 @@ fn simplify_condition(function: &mut Function, node: NodeIndex) -> bool {
 }
 
 fn single_assign(block: &ast::Block) -> Option<&ast::Assign> {
-    if block.len() == 1
-        && if let  Some(assign)  = block.last().unwrap().as_assign() { true } else { false }
-        && assign.left.len() == 1
-    {
-        Some(assign)
-    } else {
-        None
+    if block.len() == 1 {
+        if let Some(assign) = block.last().unwrap().as_assign() {
+            if assign.left.len() == 1 {
+                return Some(assign);
+            }
+        }
     }
+    None
 }
 
 fn match_conditional_sequence(
