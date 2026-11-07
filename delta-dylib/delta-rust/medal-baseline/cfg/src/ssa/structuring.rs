@@ -178,16 +178,10 @@ fn match_conditional_sequence(
         };
         let first_terminator = function.conditional_edges(node).unwrap();
         let (then_edge, else_edge) = first_terminator;
+        let else_args = else_edge.weight().arguments.iter().cloned().collect::<FxHashMap<_, _>>();
         if function.predecessor_blocks(then_edge.target()).count() == 1
             && then_edge.weight().arguments.is_empty()
-            && if let else_args = else_edge { true } else { false }
-                .weight()
-                .arguments
-                .iter()
-                .cloned()
-                .collect::<FxHashMap<_, _>>()
-            && if let  Some((second_condition, assign))  =  { true } else { false }
-                test_pattern(then_edge.target(), else_edge.target(), else_args)
+            && let Some((second_condition, assign)) = test_pattern(then_edge.target(), else_edge.target(), else_args)
         {
             let second_terminator = function.conditional_edges(then_edge.target()).unwrap();
             if second_terminator.0.target() == else_edge.target() {
