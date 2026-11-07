@@ -34,7 +34,6 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            delta-dylib/delta-rust/medal-baseline/target
           key: cargo-${{ hashFiles('delta-dylib/delta-rust/medal-baseline/Cargo.lock') }}
           restore-keys: cargo-
 
@@ -46,8 +45,8 @@ jobs:
           cd delta-dylib/delta-rust/medal-baseline
           rustc --version
           cargo --version
-          cargo check --target aarch64-apple-ios -p luau-lifter 2>&1 || exit 1
-          cargo build --release --lib --target aarch64-apple-ios -p luau-lifter 2>&1
+          cargo check --target aarch64-apple-ios -p luau-lifter
+          cargo build --release --lib --target aarch64-apple-ios -p luau-lifter
           LIB=$(find target -name "libluau_lifter.a" -type f | head -1)
           if [ -z "$LIB" ]; then
             echo "ERROR: libluau_lifter.a not found"
