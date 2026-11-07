@@ -184,7 +184,9 @@ impl<'a> Inliner<'a> {
                     }
 
                     if let ast::Statement::Assign(assign) = &block[stat_index]
-                        && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
+                        && assign.right.iter().exactly_one().is_ok()
+                        && { let new_rvalue = assign.right.iter().exactly_one().unwrap();
+                            true }
                     {
                         let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                             || new_rvalue
@@ -193,7 +195,8 @@ impl<'a> Inliner<'a> {
                                 .any(|v| self.upvalue_to_group.contains_key(*v));
                         if !new_rvalue_has_side_effects || allow_side_effects {
                             if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
-                                && if let  Some(read)  = stat_to_values_read[index] { true } else { false }
+                                && stat_to_values_read[index].is_some()
+                                    && { let read = stat_to_values_read[index].clone(); true }
                                     .iter_mut()
                                     .find(|l| l.as_ref() == Some(local))
                             {
@@ -385,7 +388,9 @@ impl<'a> Inliner<'a> {
                         }
 
                         if let ast::Statement::Assign(assign) = &block[stat_index]
-                            && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
+                            && assign.right.iter().exactly_one().is_ok()
+                            && { let new_rvalue = assign.right.iter().exactly_one().unwrap();
+                                true }
                         {
                             let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
                                 || new_rvalue
