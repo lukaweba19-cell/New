@@ -451,11 +451,12 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
         if let Some(edge_to_next) = function.unconditional_edge(assigner)
             && edge_to_next.target() == next
             && edge_to_next.weight().arguments.iter().all(|(p, _)| next_args.contains_key(p))
-            && if let  Some(assign)  = single_assign(function.block(assigner).unwrap()) { true } else { false }
+            && let Some(assign) = single_assign(function.block(assigner).unwrap())
             // TODO: allow multiple unused (excl. first) locals in left
             && assign.left.len() == 1 && assign.right.len() == 1
-            && if let  ast::LValue::Local(assigned_local)  = &assign.left[0] { true } else { false }
-            && next_args.len() == 1 && if let  Ok((param, ast::RValue::Local(arg)))  = edge_to_next.weight().arguments.iter().exactly_one() { true } else { false }
+            && let ast::LValue::Local(assigned_local) = &assign.left[0]
+            && next_args.len() == 1
+            && let Ok((param, ast::RValue::Local(arg))) = edge_to_next.weight().arguments.iter().exactly_one()
             && arg == assigned_local
         {
             // TODO: make sure assigned_local is only used in the assigner and it's params to next
