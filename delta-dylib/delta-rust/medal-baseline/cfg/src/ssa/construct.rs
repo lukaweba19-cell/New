@@ -406,11 +406,11 @@ impl<'a> SsaConstructor<'a> {
                 let assign = block[index].as_assign().unwrap();
                 if assign.left.len() == 1
                     && assign.right.len() == 1
-                    && if let  Some(from)  = assign.left[0].as_local() { true } else { false }
-                    && if let from_old = &self.old_locals[from] { true } else { false }
+                    && let Some(from) = assign.left[0].as_local()
+                    && let from_old = &self.old_locals[from]
                     && !self.new_upvalues_in.contains_key(from_old)
                     && !self.upvalues_passed.contains_key(from_old)
-                    && if let  Some(mut to)  = assign.right[0].as_local() { true } else { false }
+                    && let Some(mut to) = assign.right[0].as_local()
                 {
                     // TODO: STYLE: this name lol
                     while let Some(to_to) = self.local_map.get(to) {
@@ -520,7 +520,7 @@ impl<'a> SsaConstructor<'a> {
                 if let Some(assign) = statement.as_assign()
                     && assign.left.len() == 1
                     && assign.right.len() == 1
-                    && if let  Some(local)  = assign.left[0].as_local().cloned() { true } else { false }
+                    && let Some(local) = assign.left[0].as_local().cloned()
                     && assign.right[0].as_closure().is_some()
                 {
                     let new_local = RcLocal::default();
