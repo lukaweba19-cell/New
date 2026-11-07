@@ -38,7 +38,7 @@ targets:
         MTL_FAST_MATH: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_FRAMEWORK_SEARCH_PATHS: "$(inherited)"
-        OTHER_LDFLAGS: "$(inherited) -framework UIKit"
+        OTHER_LDFLAGS: "$(inherited) -framework UIKit -L\"$(SRCROOT)/../delta-rust/medal-baseline/target/aarch64-apple-ios/release\" -lluau_lifter"
         LD_STATIC_LIBRARY_PATHS: "$(inherited) ../delta-rust/medal-baseline/target/aarch64-apple-ios/release"
     info:
       path: Resources/Info.plist
