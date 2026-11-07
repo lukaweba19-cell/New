@@ -31,6 +31,63 @@ use rustc_hash::FxHashMap;
 use triomphe::Arc;
 use walkdir::WalkDir;
 
+// =========================================================================
+// C FFI bridge — exposes the decompiler as extern "C" functions suitable
+// for linking into an iOS dylib. These match the native interface recovered
+// from libgloop.dylib (addresses 0xb6cca8 and 0xb71828).
+// =========================================================================
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+pub extern "C" fn rust_decompile_luau(
+    bytecode: *const u8,
+    length: usize,
+    encode_key: u8,
+) -> *mut std::os::raw::c_char {
+    if bytecode.is_null() || length == 0 {
+        return std::ptr::null_mut::<std::os::raw::c_char>();
+    }
+
+    let slice = unsafe { std::slice::from_raw_parts(bytecode, length) };
+    let result = decompile_bytecode(slice, encode_key);
+
+    if result.is_empty() || result.starts_with("-- ") {
+        // Failure path: return a C string copy
+        let c_msg = std::ffi::CString::new(result).ok();
+        c_msg.map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    } else {
+        // Success: convert Rust String to C string
+        let c_str = std::ffi::CString::new(result).ok();
+        c_str.map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+pub extern "C" fn rust_free_c_string(ptr: *mut std::os::raw::c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    // CString::from_raw takes ownership and frees the allocation
+    unsafe { let _ = std::ffi::CString::from_raw(ptr); }
+}
+
+#[cfg(not(target_os = "ios"))]
+pub extern "C" fn rust_decompile_luau(
+    _bytecode: *const u8,
+    _length: usize,
+    _encode_key: u8,
+) -> *mut std::os::raw::c_char {
+    std::ptr::null_mut()
+}
+
+#[cfg(not(target_os = "ios"))]
+pub extern "C" fn rust_free_c_string(_ptr: *mut std::os::raw::c_char) {
+    // no-op on non-iOS targets
+}
+
+// =========================================================================
+
 use std::{
     fs::File,
     io::{Read, Write},
