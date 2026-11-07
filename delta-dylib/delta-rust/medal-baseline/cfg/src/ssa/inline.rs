@@ -192,12 +192,11 @@ impl<'a> Inliner<'a> {
                                 .iter()
                                 .any(|v| self.upvalue_to_group.contains_key(*v));
                         if !new_rvalue_has_side_effects || allow_side_effects {
-                            let read = stat_to_values_read[index].clone();
                             if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
-                                && stat_to_values_read[index].is_some()
-                                && read.iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
+                                && !stat_to_values_read[index].is_empty()
+                                && stat_to_values_read[index].iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
                             {
-                                let read = stat_to_values_read[index].clone();
+                                let mut read = stat_to_values_read[index].clone();
                                 let read = read.iter_mut().find(|l| l.as_ref() == Some(local)).unwrap();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
@@ -396,10 +395,9 @@ impl<'a> Inliner<'a> {
                                     .any(|v| self.upvalue_to_group.contains_key(*v));
                             if !new_rvalue_has_side_effects
                                 && let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
-                                && let read = arg_to_values_read[index].clone()
+                                && let mut read = arg_to_values_read[index].clone()
                                 && read.iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
                             {
-                                let read = arg_to_values_read[index].clone();
                                 let read = read.iter_mut().find(|l| l.as_ref() == Some(local)).unwrap();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
