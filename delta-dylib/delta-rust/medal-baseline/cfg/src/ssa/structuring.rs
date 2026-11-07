@@ -221,8 +221,7 @@ fn match_conditional_sequence(
                 .iter()
                 .cloned()
                 .collect::<FxHashMap<_, _>>()
-            && if let  Some((second_condition, assign))  =  { true } else { false }
-                test_pattern(else_edge.target(), then_edge.target(), then_args)
+            && let Some((second_condition, assign)) = test_pattern(else_edge.target(), then_edge.target(), then_args)
         {
             let second_terminator = function.conditional_edges(else_edge.target()).unwrap();
             if first_terminator.0.target() == second_terminator.0.target() {
@@ -523,8 +522,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .iter()
                 .cloned()
                 .collect::<FxHashMap<_, _>>()
-            && if let  Some((res_local, then_value, else_value))  =  { true } else { false }
-                match_triangle(then_edge.target(), else_edge.target(), else_args)
+            && let Some((res_local, then_value, else_value)) = match_triangle(then_edge.target(), then_edge.target(), else_args)
         {
             let then_block = then_edge.target();
             let (then_edge, else_edge) = (
