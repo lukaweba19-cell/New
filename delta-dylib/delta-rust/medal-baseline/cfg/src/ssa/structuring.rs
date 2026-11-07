@@ -215,13 +215,9 @@ fn match_conditional_sequence(
             }
         } else if function.predecessor_blocks(else_edge.target()).count() == 1
             && else_edge.weight().arguments.is_empty()
-            && if let then_args = then_edge { true } else { false }
-                .weight()
-                .arguments
-                .iter()
-                .cloned()
-                .collect::<FxHashMap<_, _>>()
-            && let Some((second_condition, assign)) = test_pattern(else_edge.target(), then_edge.target(), then_args)
+            && let then_args = then_edge.weight().arguments.iter().cloned().collect::<FxHashMap<_, _>>()
+            && if let  Some((second_condition, assign))  =  { true } else { false }
+                test_pattern(else_edge.target(), then_edge.target(), then_args)
         {
             let second_terminator = function.conditional_edges(else_edge.target()).unwrap();
             if first_terminator.0.target() == second_terminator.0.target() {
