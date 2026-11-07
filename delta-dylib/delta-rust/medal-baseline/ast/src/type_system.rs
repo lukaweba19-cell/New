@@ -29,18 +29,12 @@ impl Type {
     pub fn is_subtype_of(&self, t: &Self) -> bool {
         match t {
             Self::Any => true,
-            Self::Table {
-                Box::new(indexer),
-                fields,
-            } => {
+            Self::Table { indexer, fields } => {
                 let t_fields = fields;
-                let (indexer_type, element_type) = indexer;
+                let (indexer_type, element_type) = indexer.as_ref();
 
                 match self {
-                    Self::Table {
-                        Box::new(indexer),
-                        fields,
-                    } if indexer.0.is_subtype_of(indexer_type)
+                    Self::Table { indexer, fields } if indexer.0.is_subtype_of(indexer_type)
                         && indexer.1.is_subtype_of(element_type) =>
                     {
                         t_fields

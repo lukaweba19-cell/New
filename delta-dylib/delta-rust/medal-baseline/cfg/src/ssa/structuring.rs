@@ -420,12 +420,12 @@ fn make_bool_conditional(
             let cond =
                 std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()).reduce_condition();
             if let ast::RValue::Unary(ast::Unary {
-                Box::new(value),
+                value,
                 operation: ast::UnaryOperation::Not,
             }) = cond
             {
                 std::mem::swap(&mut then_value, &mut else_value);
-                value
+                *value
             } else {
                 cond
             }
@@ -723,11 +723,13 @@ fn match_method_call(call: &ast::Call) -> Option<(&ast::RValue, &str)> {
     // TODO: make sure `a:method with space()` doesnt happen
     if !call.arguments.is_empty()
         && !call.arguments[0].has_side_effects()
-        && if let Some(ast::Index {
-            Box::new(left),
-            right: ast::RValue::Literal(ast::Literal::String(index)),
-        }) = call.value.as_index() { true } else { false }
-        && left == &call.arguments[0]
+        && if let Some(ast::Index { left, right: ast::RValue::Literal(ast::Literal::String(index)) }) = call.value.as_index()
+            && left == &call.arguments[0]
+        {
+            true
+        } else {
+            false
+        }
     {
         if let Ok(index) = std::str::from_utf8(index) {
             Some((left, index))

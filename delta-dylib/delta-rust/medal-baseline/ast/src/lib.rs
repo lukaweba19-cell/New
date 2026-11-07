@@ -1,4 +1,6 @@
 
+#![feature(iter_order_by, box_into_inner)]
+
 use derive_more::From;
 use enum_as_inner::EnumAsInner;
 use enum_dispatch::enum_dispatch;

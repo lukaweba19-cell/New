@@ -462,8 +462,8 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
                         let printed = buffer.format(c);
                         owned.push('\\');
                         if printed.len() != 3
-                            && if let  Some((_, next))  = iter.peek() { true } else { false }
-                            && next.is_ascii_digit()
+                            && iter.peek().is_some()
+                            && iter.peek().unwrap().1.is_ascii_digit()
                         {
                             owned.extend(iter::repeat('0').take(3 - printed.len()));
                         }
@@ -570,35 +570,36 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
 
         if assign.left.len() == 1
             && assign.right.len() == 1
-            && if let  RValue::Closure(closure)  = &assign.right[0] { true } else { false }
         {
             let left = &assign.left[0];
-            if assign.prefix || left.as_global().is_some() || {
-                if let LValue::Index(ref index) = left {
-                    let mut index = index;
-                    let mut valid = true;
-                    loop {
-                        if let RValue::Literal(Literal::String(ref key)) = &index.right
-                            && Self::is_valid_name(key)
-                        {
-                            match index.left {
-                                RValue::Index(ref i) => {
-                                    index = i;
-                                    continue;
+            if let RValue::Closure(closure) = &assign.right[0]
+                && (assign.prefix
+                    || left.as_global().is_some()
+                    || if let LValue::Index(index) = left {
+                        let mut index = index;
+                        let mut valid = true;
+                        loop {
+                            if let RValue::Literal(Literal::String(key)) = &*index.right
+                                && Self::is_valid_name(key)
+                            {
+                                match &*index.left {
+                                    RValue::Index(i) => {
+                                        index = i;
+                                        continue;
+                                    }
+                                    RValue::Global(_) | RValue::Local(_) => {}
+                                    _ => valid = false,
                                 }
-                                RValue::Global(_) | RValue::Local(_) => {}
-                                _ => valid = false,
+                            } else {
+                                valid = false;
                             }
-                        } else {
-                            valid = false;
+                            break;
                         }
-                        break;
-                    }
-                    valid
-                } else {
-                    false
-                }
-            } {
+                        valid
+                    } else {
+                        false
+                    })
+            {
                 return self.format_named_function(left, closure);
             }
         }

@@ -116,7 +116,7 @@ impl LocalDeclarer {
                     (common_dominator, first_stat_index.unwrap())
                 }
             };
-            while let (block, parent_stat_index) = self.graph.node_weight(node).unwrap()
+            while let Some((block, parent_stat_index)) = self.graph.node_weight(node)
                 && block.is_none()
             {
                 let parent = self
