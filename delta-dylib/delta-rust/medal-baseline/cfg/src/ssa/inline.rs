@@ -547,13 +547,14 @@ pub fn inline(
                     let object_local = object_local.clone();
                     i += 1;
                     while i < block.len()
-                        && if let  ast::Statement::Assign(field_assign)  = &block[i] { true } else { false }
+                        && let ast::Statement::Assign(field_assign) = &block[i]
                         && field_assign.left.len() == 1
                         && field_assign.right.len() == 1
-                        && if let ast::LValue::Index(ast::Index {
+                        && let ast::LValue::Index(ast::Index {
                             left: ast::RValue::Local(local),
                             ..
-                        }) = &field_assign.left[0] { local == object_local } else { false }
+                        }) = &field_assign.left[0]
+                        && local == object_local
                     {
                         let right = &field_assign.right[0];
                         if right.as_closure().is_none()
