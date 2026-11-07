@@ -723,14 +723,14 @@ fn match_method_call(call: &ast::Call) -> Option<(&ast::RValue, &str)> {
     // TODO: make sure `a:method with space()` doesnt happen
     if !call.arguments.is_empty()
         && !call.arguments[0].has_side_effects()
-        && if let Some(ast::Index {
-            Box::new(left),
+        && let Some(ast::Index {
+            left,
             right: ast::RValue::Literal(ast::Literal::String(index)),
-        }) = call.value.as_index() { true } else { false }
-        && left == &call.arguments[0]
+        }) = call.value.as_index()
+        && &*left == &call.arguments[0]
     {
         if let Ok(index) = std::str::from_utf8(index) {
-            Some((left, index))
+            Some((&*left, index))
         } else {
             None
         }
