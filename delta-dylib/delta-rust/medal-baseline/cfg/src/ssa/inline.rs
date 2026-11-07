@@ -496,7 +496,7 @@ pub fn inline(
                 if let ast::Statement::Assign(assign) = &block[stat_index]
                     && assign.left.len() == 1
                     && assign.right.len() == 1
-                    && if let  ast::LValue::Local(local)  = &assign.left[0] { true } else { false }
+                    && let ast::LValue::Local(local) = &assign.left[0]
                 {
                     let rvalue = &assign.right[0];
                     let has_side_effects = rvalue.has_side_effects();
