@@ -23,11 +23,9 @@ jobs:
           submodules: recursive
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
           targets: aarch64-apple-ios
-          components: rust-std
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -52,8 +50,7 @@ jobs:
           cd delta-dylib/delta-rust/medal-baseline
           rustc --version
           cargo --version
-          cargo check --target aarch64-apple-ios -p luau-lifter
-          cargo build --release --lib --target aarch64-apple-ios -p luau-lifter
+          cargo --version && rustc --version && cargo check --target aarch64-apple-ios -p luau-lifter && cargo build --release --lib --target aarch64-apple-ios -p luau-lifter
           LIB=$(find target -name "libluau_lifter.a" -type f | head -1)
           if [ -z "$LIB" ]; then
             echo "ERROR: libluau_lifter.a not found"
