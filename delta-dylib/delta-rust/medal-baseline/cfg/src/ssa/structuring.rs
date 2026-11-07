@@ -420,12 +420,12 @@ fn make_bool_conditional(
             let cond =
                 std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()).reduce_condition();
             if let ast::RValue::Unary(ast::Unary {
-                Box::new(value),
+                value,
                 operation: ast::UnaryOperation::Not,
             }) = cond
             {
                 std::mem::swap(&mut then_value, &mut else_value);
-                value
+                *value
             } else {
                 cond
             }
