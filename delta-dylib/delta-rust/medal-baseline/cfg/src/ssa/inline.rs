@@ -57,7 +57,7 @@ impl<'a> Inliner<'a> {
                                     operation,
                                 }) if operation.is_comparator()
                                     && left.has_side_effects()
-                                    && matches!(&*right, ast::RValue::Local(local))
+                                    && if let  ast::RValue::Local(local)  = &*right { true } else { false }
                                     && local == read =>
                                 {
                                     *right = std::mem::replace(
