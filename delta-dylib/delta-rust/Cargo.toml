@@ -1,13 +1,9 @@
 [workspace]
 members = [
-    "cfg",
-    "ast",
-    "lua51-lifter",
-    "lua51-deserializer",
-    "luau-lifter",
-    "restructure",
-    "luau-worker",
-    "decomp-server"
+    "medal-baseline/ast",
+    "medal-baseline/cfg",
+    "medal-baseline/restructure",
+    "medal-baseline/luau-lifter",
 ]
 
 [workspace.package]
@@ -21,5 +17,3 @@ authors = [
 [profile.release]
 debug = true
 lto = true
-# strip = true
-# panic = "abort"

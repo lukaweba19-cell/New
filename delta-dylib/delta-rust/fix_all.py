@@ -1,203 +1,230 @@
 #!/usr/bin/env python3
 """
-Fix all let_chains (&& let) in Rust 2021 edition for cfg crate.
-Converts: cond1 && let PAT = EXPR && cond2
-To: if let PAT = EXPR { cond1 && cond2 } else { false }
-But since conditions span multiple lines, we restructure the entire if/while.
+Comprehensive fix for medal2-baseline Rust code.
+
+Handles:
+1. Remove all #![feature(...)] gates
+2. Replace `box PATTERN` match arms with match ergonomics (remove `box` keyword)
+3. Replace `box EXPR` constructions with `Box::new(EXPR)`
+4. Replace `&& let PAT = EXPR` (let_chains) with nested if-let blocks
+5. Apply Delta delta: bytecode versions 4..=9
+6. Add iOS FFI exports to luau-lifter/src/lib.rs
 """
 
-import re, sys, os
+import re, os, sys
 
-def find_if_while_range(lines, start_idx):
-    """Find the start of the if/while and the end of its body."""
-    # Look back for if/while keyword
-    kw_idx = None
-    for j in range(start_idx, -1, -1):
-        stripped = lines[j].strip()
-        if stripped.startswith('if ') or stripped.startswith('while '):
-            kw_idx = j
-            break
-        # Stop if we hit a closing brace that's not part of this chain
-        if stripped == '}' or stripped.endswith('};'):
-            break
-    
-    if kw_idx is None:
-        return None, None
-    
-    # Find the body start (opening brace)
-    body_start = None
-    for j in range(start_idx, min(start_idx + 10, len(lines))):
-        if '{' in lines[j]:
-            body_start = j
-            break
-    
-    if body_start is None:
-        return kw_idx, None
-    
-    # Find matching closing brace
-    depth = 0
-    body_end = None
-    for j in range(body_start, len(lines)):
-        for ch in lines[j]:
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    body_end = j
-                    break
-        if body_end is not None:
-            break
-    
-    return kw_idx, body_end
+BASE = "delta-dylib/delta-rust/medal-baseline"
 
-def extract_let_pattern(line):
-    """Extract PAT = EXPR from '&& let PAT = EXPR' or '&& let PAT = EXPR,'"""
-    m = re.search(r'&&\s*let\s+(.+?)\s*=\s*(.+?)\s*(?:,|$)', line.strip())
-    if m:
-        return m.group(1).strip(), m.group(2).strip()
-    return None, None
+def read(path):
+    with open(path) as f:
+        return f.read()
 
-def fix_file(fpath):
-    with open(fpath) as f:
-        content = f.read()
+def write(path, content):
+    with open(path, "w") as f:
+        f.write(content)
+
+# ============================================================
+# Step 1: Remove all #![feature(...)] gates
+# ============================================================
+for root, dirs, files in os.walk(BASE):
+    for f in files:
+        if f.endswith(".rs"):
+            path = os.path.join(root, f)
+            content = read(path)
+            new_content = re.sub(r'#!\[feature\([^]]*\)\]\n', '', content)
+            if new_content != content:
+                write(path, new_content)
+                print(f"Removed feature gates: {path}")
+
+# ============================================================
+# Step 2: Replace `box PATTERN` in match arms with match ergonomics
+# ============================================================
+# In Rust 2021, `box PATTERN` is not available.
+// Match ergonomics means we can just use the pattern directly
+// and bind by reference. So `box RValue::Literal(...)` becomes just
+// `RValue::Literal(...)` and the bound variable is a reference.
+// But we need to handle the case where the code constructs a Box:
+// `box expr` -> `Box::new(expr)`
+
+def fix_file(path):
+    content = read(path)
+    original = content
+
+    # --- Replace `box IDENTIFIER @ PATTERN` in match arms ---
+    # `box value @ RValue::Unary(...)` -> `value @ RValue::Unary(...)`
+    # (match ergonomics handles the ref binding)
+    content = re.sub(r'\bbox\s+(\w+)\s+@', r'\1 @', content)
+
+    # --- Replace `box PATTERN` where PATTERN is a struct pattern ---
+    # `box RValue::Literal(...)` in match arm -> `RValue::Literal(...)`
+    content = re.sub(r'\bbox\s+(RValue::\w+\s*\([^)]*\))', r'\1', content)
+    content = re.sub(r'\bbox\s+(RValue::\w+\s*\{[^}]*\})', r'\1', content)
+    content = re.sub(r'\bbox\s+(Unary\s*\{[^}]*\})', r'\1', content)
+    content = re.sub(r'\bbox\s+(Binary\s*\{[^}]*\})', r'\1', content)
+    content = re.sub(r'\bbox\s+(Index\s*\{[^}]*\})', r'\1', content)
+    content = re.sub(r'\bbox\s+(Global\s*\([^)]*\))', r'\1', content)
+    content = re.sub(r'\bbox\s+(Local\s*\([^)]*\))', r'\1', content)
+    content = re.sub(r'\bbox\s+(\w+)', r'\1', content)  # box ident -> ident
+
+    # --- Replace `box EXPR` constructions (not in match patterns) ---
+    # These are `box RValue::Literal(...)` used as function arguments or assignments
+    # Need to distinguish from match patterns. We do this after the pattern replacement.
+    # Any remaining `box <expr>` that looks like a construction:
+    content = re.sub(r'\bbox\s+(RValue::\w+\s*\([^)]*\))', r'Box::new(\1)', content)
+    content = re.sub(r'\bbox\s+(RValue::\w+\s*\{[^}]*\})', r'Box::new(\1)', content)
+    content = re.sub(r'\bbox\s+(Unary\s*\{[^}]*\})', r'Box::new(\1)', content)
+    content = re.sub(r'\bbox\s+(Literal::\w+\s*\([^)]*\))', r'Box::new(\1)', content)
+    content = re.sub(r'\bbox\s+ref\s+(\w+)', r'\1', content)
+
+    # ============================================================
+    # Step 3: Replace `&& let PAT = EXPR` (let_chains) 
+    # ============================================================
+    # Strategy: Convert `COND1 && let PAT = EXPR && COND2` into
+    # a block: `{ let PAT = EXPR; if COND1 { if COND2 { ... } else { continue; } } else { continue; } }`
+    # But this is complex. Simpler: For each `&& let` occurrence, we need to
+    // wrap the surrounding condition in an if-let.
     
-    original_lines = content.split('\n')
-    lines = list(original_lines)  # mutable copy
+    # Find lines with `&& let` and fix them
+    lines = content.split('\n')
+    fixed_lines = []
     i = 0
-    changed = False
-    
     while i < len(lines):
         line = lines[i]
-        stripped = line.strip()
-        
-        if '&& let ' in stripped and not stripped.startswith('//'):
-            pat, expr = extract_let_pattern(line)
-            if pat is None:
-                i += 1
-                continue
+        if '&& let' in line:
+            # This line has a let_chain. We need to convert it.
+            # Strategy: extract the let binding, wrap in if let, 
+            # and keep the rest of the condition.
             
-            kw_idx, body_end = find_if_while_range(lines, i)
-            if kw_idx is None or body_end is None:
-                i += 1
-                continue
+            # Match: `... && let PAT = EXPR && ...`
+            # or: `... && let PAT = EXPR` (at end)
+            # or: `if ... && let PAT = EXPR && ... {`
             
-            kw_line = lines[kw_idx].strip()
-            kw = 'if' if kw_line.startswith('if ') else 'while'
+            # Simple approach: replace `&& let PAT = EXPR` with `;` and
+            # wrap in if let before the line.
             
-            # Collect all lines from kw_idx to body_end
-            block_lines = lines[kw_idx:body_end + 1]
+            # Find all `&& let PAT = EXPR` occurrences in this line
+            # and convert them one by one
             
-            # Find the let line within the block
-            let_rel_idx = None
-            for j, bl in enumerate(block_lines):
-                if '&& let ' in bl.strip() and not bl.strip().startswith('//'):
-                    let_rel_idx = j
-                    # Also check if this is the same let pattern
-                    p, e = extract_let_pattern(bl)
-                    if p == pat and e == expr:
-                        break
-                    let_rel_idx = None
+            new_line = line
+            # Replace `&& let PAT = EXPR &&` with `; let PAT = EXPR; if `
+            # This is tricky because we need to handle precedence.
             
-            if let_rel_idx is None:
-                i += 1
-                continue
+            # For now, just flag these lines for manual review
+            # Actually, let's do a simpler conversion:
+            # `A && let B = C` -> `{ if let B = C { A } else { continue; } }`
             
-            # Split: before let, the let line, after let (to closing brace)
-            before_let = block_lines[:let_rel_idx]
-            let_line = block_lines[let_rel_idx]
-            after_let = block_lines[let_rel_idx + 1:]
+            # Match the pattern at the end of a condition
+            new_line = re.sub(
+                r'(\s*)(.+?)\s*&&\s*let\s+(\w+(?::\w+)?)\s*=\s*([^&\n]+?)\s*&&\s*(.+)$',
+                r'\1{\n\1    let \3 = \4;\n\1    if \2 {\n\1        if \5 {\n\1            \2\n\1        } else { continue; }\n\1    } else { continue; }\n\1}',
+                new_line
+            )
             
-            # Extract conditions from before_let (after the if/while keyword)
-            kw_and_cond = before_let[0].strip()
-            # Remove 'if ' or 'while ' prefix
-            if kw_and_cond.startswith('if '):
-                cond_prefix = kw_and_cond[3:]
-            elif kw_and_cond.startswith('while '):
-                cond_prefix = kw_and_cond[6:]
-            else:
-                cond_prefix = kw_and_cond
+            # Match `&& let PAT = EXPR` at end of line (no trailing &&)
+            new_line = re.sub(
+                r'(\s*)(.+?)\s*&&\s*let\s+(\w+(?::\w+)?)\s*=\s*(.+?)$',
+                r'\1{\n\1    let \3 = \4;\n\1    if \2 {\n\1        \2\n\1    } else { continue; }\n\1}',
+                new_line
+            )
             
-            # cond_prefix may be split across multiple lines
-            # Join all before_let lines except the first (which has the keyword)
-            # and remove trailing && from the last line
-            full_pre = []
-            for bl in before_let[1:]:  # skip the keyword line
-                full_pre.append(bl.strip().rstrip(','))
-            
-            # The condition before the let (may span multiple lines)
-            pre_cond = cond_prefix
-            for pl in full_pre:
-                pre_cond += ' ' + pl
-            
-            # Remove trailing && from pre_cond
-            pre_cond = re.sub(r'\s*&&\s*$', '', pre_cond)
-            
-            # The condition after the let (everything from let_rel_idx+1 to body_start)
-            # Find body start within after_let (the line with {)
-            body_idx_in_after = None
-            for j, al in enumerate(after_let):
-                if '{' in al:
-                    body_idx_in_after = j
-                    break
-            
-            if body_idx_in_after is None:
-                i += 1
-                continue
-            
-            post_lines = after_let[:body_idx_in_after]
-            body_lines = after_let[body_idx_in_after:]
-            
-            # Join post condition
-            post_cond = ''
-            for pl in post_lines:
-                post_cond += ' ' + pl.strip().rstrip(',')
-            post_cond = post_cond.strip()
-            # Remove leading &&
-            post_cond = re.sub(r'^&&\s*', '', post_cond)
-            
-            # Build the replacement
-            indent = len(lines[kw_idx]) - len(lines[kw_idx].lstrip())
-            inner_indent = indent + 4
-            
-            new_block = []
-            # let binding
-            new_block.append(' ' * indent + f'let {pat} = {expr};')
-            # if/while let wrapping
-            new_block.append(' ' * indent + f'{kw} {pat} == {expr} {{'.replace(f'{pat} == {expr}', f'Pat &{pat}'))  # placeholder
-            # Actually: if let PAT = EXPR { if COND { BODY } }
-            # But PAT binds variables, so we need the actual pattern match
-            
-            # Better: use the actual pattern
-            new_block = []
-            new_block.append(' ' * indent + f'let {pat} = {expr};')
-            # Now wrap: if true { pre_cond && post_cond } but we need the body
-            # Actually restructure as:
-            # if PRE_COND { if let PAT = EXPR { POST_COND BODY } }
-            # Hmm, but pre_cond references things defined before the if.
-            
-            # Simplest correct approach: hoist the let, then use it in condition
-            # But Rust 2021 doesn't allow let in if condition.
-            # So: let v = match EXPR { PAT => true, _ => false };
-            # Then the let-pattern variables are lost.
-            
-            # For variables that are used, we need to extract them:
-            # let (var1, var2) = match EXPR { PAT => (var1, var2), _ => return };
-            
-            # This is getting very complex. Let me use a different strategy:
-            # Replace the entire if/while block with a manually restructured version
-            
-            # Mark for manual fix and skip
-            print(f"  NEEDS MANUAL FIX at line {i+1} in {fpath}: {stripped[:80]}")
-            i += 1
-            continue
-        
+            fixed_lines.append(new_line)
+        else:
+            fixed_lines.append(line)
         i += 1
     
-    print(f"  Analyzed {fpath}: {sum(1 for l in original_lines if '&& let ' in l.strip() and not l.strip().startswith('//'))} let_chain occurrences")
-    return changed
+    content = '\n'.join(fixed_lines)
 
-if __name__ == '__main__':
-    for fpath in sys.argv[1:]:
-        if os.path.exists(fpath):
-            fix_file(fpath)
+    if content != original:
+        write(path, content)
+        print(f"Fixed: {path}")
+        return True
+    return False
+
+# Apply to all Rust files
+fixed_count = 0
+for root, dirs, files in os.walk(BASE):
+    for f in files:
+        if f.endswith(".rs"):
+            path = os.path.join(root, f)
+            if fix_file(path):
+                fixed_count += 1
+
+print(f"\nFixed {fixed_count} files")
+
+# ============================================================
+# Step 4: Apply Delta delta to bytecode.rs
+# ============================================================
+bytecode_path = os.path.join(BASE, "luau-lifter/src/deserializer/bytecode.rs")
+if os.path.exists(bytecode_path):
+    content = read(bytecode_path)
+    # The Delta fork supports bytecode versions 4-9 (public Medal baseline only 4-6)
+    # Find version checks and extend the upper bound
+    content = re.sub(r'version\s*>\s*6', 'version > 9', content)
+    content = re.sub(r'version < 4 \|\| version > 6', 'version < 4 || version > 9', content)
+    # Also check for array/slice bounds like [0..6] or similar
+    content = re.sub(r'\.\.6\b', '..9', content)
+    write(bytecode_path, content)
+    print("Applied Delta delta to bytecode.rs")
+
+# ============================================================
+# Step 5: Add iOS FFI exports
+# ============================================================
+lib_path = os.path.join(BASE, "luau-lifter/src/lib.rs")
+if os.path.exists(lib_path):
+    content = read(lib_path)
+    ffi = """
+
+// ============================================================================
+// iOS FFI — extern "C" exports for linking into the iOS dylib.
+// Matches native interface recovered from libgloop.dylib:
+//   0xb6cca8  decompile_luau_bytecode_with_encoding_key
+//   0xb71828  free_decompiled_c_string
+// ============================================================================
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+pub extern "C" fn rust_decompile_luau(
+    bytecode: *const u8,
+    length: usize,
+    encode_key: u8,
+) -> *mut std::os::raw::c_char {
+    if bytecode.is_null() || length == 0 {
+        return std::ptr::null_mut::<std::os::raw::c_char>();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bytecode, length) };
+    let result = decompile_bytecode(slice, encode_key);
+    if result.is_empty() || result.starts_with("-- ") {
+        let c_msg = std::ffi::CString::new(result).ok();
+        c_msg.map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    } else {
+        let c_str = std::ffi::CString::new(result).ok();
+        c_str.map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[no_mangle]
+pub extern "C" fn rust_free_c_string(ptr: *mut std::os::raw::c_char) {
+    if ptr.is_null() { return; }
+    unsafe { let _ = std::ffi::CString::from_raw(ptr); }
+}
+
+#[cfg(not(target_os = "ios"))]
+pub extern "C" fn rust_decompile_luau(
+    _bytecode: *const u8, _length: usize, _encode_key: u8,
+) -> *mut std::os::raw::c_char {
+    std::ptr::null_mut()
+}
+
+#[cfg(not(target_os = "ios"))]
+pub extern "C" fn rust_free_c_string(_ptr: *mut std::os::raw::c_char) {}
+"""
+    content = content.rstrip()
+    if content.endswith('}'):
+        content = content[:-1] + ffi + '\n}\n'
+    else:
+        content += ffi
+    write(lib_path, content)
+    print("Added iOS FFI exports to luau-lifter/src/lib.rs")
+
+print("\nDone.")
