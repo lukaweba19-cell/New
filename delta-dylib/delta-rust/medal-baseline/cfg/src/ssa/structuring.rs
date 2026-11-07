@@ -726,12 +726,13 @@ fn match_method_call(call: &ast::Call) -> Option<(&ast::RValue, &str)> {
         && !call.arguments[0].has_side_effects()
         && let Some(ast::Index {
             left,
-            right: ast::RValue::Literal(ast::Literal::String(index)),
+            right,
         }) = call.value.as_index()
-        && &*left == &call.arguments[0]
+        && let ast::RValue::Literal(ast::Literal::String(index)) = &**right
+        && **left == call.arguments[0]
     {
         if let Ok(index) = std::str::from_utf8(index) {
-            Some((&*left, index))
+            Some((&**left, index))
         } else {
             None
         }
