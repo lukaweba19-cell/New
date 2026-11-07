@@ -552,8 +552,7 @@ pub fn inline(
                         && if let ast::LValue::Index(ast::Index {
                             left: ast::RValue::Local(local),
                             ..
-                        }) = &field_assign.left[0] { true } else { false }
-                        && local == &object_local
+                        }) = &field_assign.left[0] { local == object_local } else { false }
                     {
                         let right = &field_assign.right[0];
                         if right.as_closure().is_none()
