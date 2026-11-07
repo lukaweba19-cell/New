@@ -857,7 +857,7 @@ impl<'a> Destructor<'a> {
                 for (param, arg) in args {
                     let temp_local = RcLocal::default();
                     if let ast::RValue::Local(arg) = arg
-                        && let Some(group) = self.upvalue_to_group.get(arg)
+                        && if let  Some(group)  = self.upvalue_to_group.get(arg) { true } else { false }
                     {
                         self.upvalue_to_group
                             .insert(temp_local.clone(), group.clone());

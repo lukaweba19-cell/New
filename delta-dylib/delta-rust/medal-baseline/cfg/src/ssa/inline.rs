@@ -57,9 +57,8 @@ impl<'a> Inliner<'a> {
                                     operation,
                                 }) if operation.is_comparator()
                                     && left.has_side_effects()
-                                    && if let ast::RValue::Local(local) = &**right {
-                                        local == read
-                                    } else { false } =>
+                                    && if let  ast::RValue::Local(ref local)  = right { true } else { false }
+                                    && local == read =>
                                 {
                                     *right = std::mem::replace(
                                         left,
@@ -185,20 +184,19 @@ impl<'a> Inliner<'a> {
                     }
 
                     if let ast::Statement::Assign(assign) = &block[stat_index]
-                        && assign.right.iter().count() == 1
+                        && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
                     {
-                        let new_rvalue_has_side_effects = assign.right[0].has_side_effects()
-                            || assign.right[0]
+                        let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
+                            || new_rvalue
                                 .values_read()
                                 .iter()
                                 .any(|v| self.upvalue_to_group.contains_key(*v));
                         if !new_rvalue_has_side_effects || allow_side_effects {
-                            if assign.left.iter().count() == 1
-                                && stat_to_values_read[index]
+                            if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
+                                && if let  Some(read)  = stat_to_values_read[index] { true } else { false }
                                     .iter_mut()
-                                    .find(|l| l.as_ref() == assign.left[0].as_local()).is_some()
+                                    .find(|l| l.as_ref() == Some(local))
                             {
-                                let local = assign.left[0].as_local().unwrap().clone();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
@@ -209,7 +207,7 @@ impl<'a> Inliner<'a> {
                                 );
                                 if Self::try_inline(
                                     &mut block[index],
-                                    &local,
+                                    read.as_ref().unwrap(),
                                     &mut new_rvalue,
                                     new_rvalue_has_side_effects,
                                 ) {
@@ -232,6 +230,7 @@ impl<'a> Inliner<'a> {
                                     // we dont need to update local usages because tracking usages for a local
                                     // with no declarations serves no purpose
                                     block[stat_index] = ast::Empty {}.into();
+                                    *read = None;
                                     continue 'w;
                                 } else {
                                     block[stat_index]
@@ -386,20 +385,20 @@ impl<'a> Inliner<'a> {
                         }
 
                         if let ast::Statement::Assign(assign) = &block[stat_index]
-                            && assign.right.iter().count() == 1
+                            && if let  Ok(new_rvalue)  = assign.right.iter().exactly_one() { true } else { false }
                         {
-                            let new_rvalue_has_side_effects = assign.right[0].has_side_effects()
-                                || assign.right[0]
+                            let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
+                                || new_rvalue
                                     .values_read()
                                     .iter()
                                     .any(|v| self.upvalue_to_group.contains_key(*v));
                             if !new_rvalue_has_side_effects
-                                && assign.left.iter().count() == 1
-                                && arg_to_values_read[index]
+                                && if let  Ok(ast::LValue::Local(local))  =  { true } else { false }
+                                    &assign.left.iter().exactly_one()
+                                && if let  Some(read)  = arg_to_values_read[index] { true } else { false }
                                     .iter_mut()
-                                    .find(|l| l.as_ref() == assign.left[0].as_local()).is_some()
+                                    .find(|l| l.as_ref() == Some(local))
                             {
-                                let local = assign.left[0].as_local().unwrap().clone();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
@@ -418,7 +417,7 @@ impl<'a> Inliner<'a> {
                                             .arguments[index]
                                             .1,
                                     ),
-                                    &local,
+                                    read.as_ref().unwrap(),
                                     &mut new_rvalue,
                                     new_rvalue_has_side_effects,
                                 ) {
@@ -436,6 +435,7 @@ impl<'a> Inliner<'a> {
                                     // with no declarations serves no purpose
 
                                     block[stat_index] = ast::Empty {}.into();
+                                    *read = None;
                                     continue 'w;
                                 } else {
                                     let block = self.function.block_mut(node).unwrap();
@@ -493,7 +493,8 @@ pub fn inline(
             for stat_index in 0..block.len() {
                 if let ast::Statement::Assign(assign) = &block[stat_index]
                     && assign.left.len() == 1
-                    && assign.right.len() == 1                                    && let ast::LValue::Local(local) = &assign.left[0]
+                    && assign.right.len() == 1
+                    && if let  ast::LValue::Local(local)  = &assign.left[0] { true } else { false }
                 {
                     let rvalue = &assign.right[0];
                     let has_side_effects = rvalue.has_side_effects();
@@ -539,22 +540,22 @@ pub fn inline(
                     && assign.left.len() == 1
                     && assign.right.len() == 1
                     && assign.right[0].as_table().is_some()
-                    && let ast::LValue::Local(object_local) = &assign.left[0]
+                    && if let  ast::LValue::Local(object_local)  = &assign.left[0] { true } else { false }
                 {
                     let table_index = i;
                     let object_local = object_local.clone();
                     i += 1;
                     while i < block.len()
-                        && let ast::Statement::Assign(field_assign) = &block[i]
-                            && field_assign.left.len() == 1
-                            && field_assign.right.len() == 1
-                            && let ast::LValue::Index(ast::Index {
-                                left: Box::new(ast::RValue::Local(local)),
-                                ..
-                            }) = &field_assign.left[0]
-                            && local == &object_local
-                        {
-                            let right = &field_assign.right[0];
+                        && if let  ast::Statement::Assign(field_assign)  = &block[i] { true } else { false }
+                        && field_assign.left.len() == 1
+                        && field_assign.right.len() == 1
+                        && if let ast::LValue::Index(ast::Index {
+                            left: ast::RValue::Local(local),
+                            ..
+                        }) = &field_assign.left[0] { true } else { false }
+                        && local == &object_local
+                    {
+                        let right = &field_assign.right[0];
                         if right.as_closure().is_none()
                             && right.values_read().contains(&&object_local)
                         {
