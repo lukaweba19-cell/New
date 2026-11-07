@@ -319,7 +319,7 @@ impl GraphStructurer {
                 );
             // TODO: add for next support?
             if !self.is_for_next(header)
-                && if let  Some(new_next)  = common_post_doms.into_iter().find(|&p| {                     self.function.has_block(p)                         && continues                             .iter()                             .all(|&n| post_dom.dominators(n).unwrap().contains(&p))                 }) { true } else { false }
+                && let Some(new_next) = common_post_doms.into_iter().find(|&p| {                     self.function.has_block(p)                         && continues                             .iter()                             .all(|&n| post_dom.dominators(n).unwrap().contains(&p))                 })
 
 
 
@@ -415,7 +415,7 @@ impl GraphStructurer {
             }
 
             if self.function.successor_blocks(body).exactly_one().ok() == Some(header)
-                && if let  Some(next)  = next { true } else { false }
+                && let Some(next) = next
             {
                 let statement = self.function.block_mut(header).unwrap().pop().unwrap();
                 if let ast::Statement::If(if_stat) = statement {

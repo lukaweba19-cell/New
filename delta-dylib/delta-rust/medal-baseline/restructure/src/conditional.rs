@@ -25,7 +25,7 @@ impl GraphStructurer {
         let then_return = then_block.last().and_then(|x| x.as_return());
         let else_return = else_block.last().and_then(|x| x.as_return());
         if let Some(then_return) = then_return
-            && if let  Some(else_return)  = else_return { true } else { false }
+            && let Some(else_return) = else_return
         {
             if then_return.values.is_empty() && else_return.values.is_empty() {
                 then_block.pop();

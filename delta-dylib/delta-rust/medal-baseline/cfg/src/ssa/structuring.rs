@@ -216,8 +216,7 @@ fn match_conditional_sequence(
         } else if function.predecessor_blocks(else_edge.target()).count() == 1
             && else_edge.weight().arguments.is_empty()
             && let then_args = then_edge.weight().arguments.iter().cloned().collect::<FxHashMap<_, _>>()
-            && if let  Some((second_condition, assign))  =  { true } else { false }
-                test_pattern(else_edge.target(), then_edge.target(), then_args)
+            && let Some((second_condition, assign)) = test_pattern(else_edge.target(), then_edge.target(), then_args)
         {
             let second_terminator = function.conditional_edges(else_edge.target()).unwrap();
             if first_terminator.0.target() == second_terminator.0.target() {
@@ -362,7 +361,7 @@ fn make_bool_conditional(
     let block = function.block_mut(node).unwrap();
     let r#if = block.last_mut().unwrap().as_if_mut().unwrap();
     if let ast::RValue::Literal(ast::Literal::Boolean(then_value)) = then_value
-        && if let  ast::RValue::Literal(ast::Literal::Boolean(else_value))  = else_value { true } else { false }
+        && let ast::RValue::Literal(ast::Literal::Boolean(else_value)) = else_value
         && then_value != else_value
     {
         let cond = ast::Unary::new(
@@ -512,12 +511,7 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(then_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let else_args = else_edge { true } else { false }
-                .weight()
-                .arguments
-                .iter()
-                .cloned()
-                .collect::<FxHashMap<_, _>>()
+            && let else_args = else_edge.weight().arguments.iter().cloned().collect::<FxHashMap<_, _>>()
             && let Some((res_local, then_value, else_value)) = match_triangle(then_edge.target(), then_edge.target(), else_args)
         {
             let then_block = then_edge.target();
@@ -560,14 +554,8 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .predecessor_blocks(else_edge.target())
                 .exactly_one()
                 .is_ok()
-            && if let then_args = then_edge { true } else { false }
-                .weight()
-                .arguments
-                .iter()
-                .cloned()
-                .collect::<FxHashMap<_, _>>()
-            && if let  Some((res_local, else_value, then_value))  =  { true } else { false }
-                match_triangle(else_edge.target(), then_edge.target(), then_args)
+            && let then_args = then_edge.weight().arguments.iter().cloned().collect::<FxHashMap<_, _>>()
+            && let Some((res_local, else_value, then_value)) = match_triangle(else_edge.target(), then_edge.target(), then_args)
         {
             let else_block = else_edge.target();
             let (then_edge, else_edge) = (
@@ -605,18 +593,16 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 false
             }
         } else if function.predecessor_blocks(then_edge.target()).exactly_one().is_ok()
-            && if let  Ok(then_next)  = function.successor_blocks(then_edge.target()).exactly_one() { true } else { false }
+            && let Ok(then_next) = function.successor_blocks(then_edge.target()).exactly_one()
             && function.predecessor_blocks(else_edge.target()).exactly_one().is_ok()
-            && if let  Ok(else_next)  = function.successor_blocks(else_edge.target()).exactly_one() { true } else { false }
+            && let Ok(else_next) = function.successor_blocks(else_edge.target()).exactly_one()
             && then_next == else_next
-            && if let  Some(then_assign)  = single_assign(function.block(then_edge.target()).unwrap()) { true } else { false }
-            // TODO: allow multiple unused (excl. first) locals in left
+            && let Some(then_assign) = single_assign(function.block(then_edge.target()).unwrap())
             && then_assign.left.len() == 1 && then_assign.right.len() == 1
-            && if let  Some(else_assign)  = single_assign(function.block(else_edge.target()).unwrap()) { true } else { false }
-            // TODO: allow multiple unused (excl. first) locals in left
+            && let Some(else_assign) = single_assign(function.block(else_edge.target()).unwrap())
             && else_assign.left.len() == 1 && else_assign.right.len() == 1
-            && if let  Ok((then_param, ast::RValue::Local(then_arg)))  = then_edge.weight().arguments.iter().exactly_one() { true } else { false }
-            && if let  Ok((else_param, ast::RValue::Local(else_arg)))  = else_edge.weight().arguments.iter().exactly_one() { true } else { false }
+            && let Ok((then_param, ast::RValue::Local(then_arg))) = then_edge.weight().arguments.iter().exactly_one()
+            && let Ok((else_param, ast::RValue::Local(else_arg))) = else_edge.weight().arguments.iter().exactly_one()
             && then_param == else_param
             && then_assign.left[0].as_local() == Some(then_arg)
             && else_assign.left[0].as_local() == Some(else_arg)
@@ -676,14 +662,14 @@ fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool 
                 .is_ok()
             && function.successor_blocks(then_target).next().is_none()
             && function.successor_blocks(else_target).next().is_none()
-            && if let Ok(ast::Statement::Return(ast::Return {
+            && let Ok(ast::Statement::Return(ast::Return {
                 values: then_values,
-            })) = function.block(then_target).unwrap().iter().exactly_one() { true } else { false }
-            && if let  Ok(then_value)  = then_values.iter().exactly_one() { true } else { false }
-            && if let Ok(ast::Statement::Return(ast::Return {
+            })) = function.block(then_target).unwrap().iter().exactly_one()
+            && let Ok(then_value) = then_values.iter().exactly_one()
+            && let Ok(ast::Statement::Return(ast::Return {
                 values: else_values,
-            })) = function.block(else_target).unwrap().iter().exactly_one() { true } else { false }
-            && if let  Ok(else_value)  = else_values.iter().exactly_one() { true } else { false }
+            })) = function.block(else_target).unwrap().iter().exactly_one()
+            && let Ok(else_value) = else_values.iter().exactly_one()
         {
             // TODO: unnecessary clones
             let then_value = then_value.clone();
@@ -835,7 +821,7 @@ fn try_remove_unnecessary_condition(function: &mut Function, node: NodeIndex) ->
     let block = function.block(node).unwrap();
     if !block.is_empty()
         && block.last().unwrap().as_if().is_some()
-        && if let Some((then_edge, else_edge)) = function.conditional_edges(node) { true } else { false }
+        && let Some((then_edge, else_edge)) = function.conditional_edges(node)
         && then_edge.target() == else_edge.target()
         && then_edge.weight().arguments == else_edge.weight().arguments
     {
@@ -902,8 +888,8 @@ pub fn structure_jumps(function: &mut Function, dominators: &Dominators<NodeInde
     for node in function.graph().node_indices().collect_vec() {
         // we call function.remove_block, that might've resulted in node being removed
         if function.block(node).is_some()
-            && if let  Some(jump)  = function.unconditional_edge(node) { true } else { false }
-            && if let jump_target = jump.target() { true } else { false }
+            && let Some(jump) = function.unconditional_edge(node)
+            && let jump_target = jump.target()
             && jump_target != node
             && !is_for_next(function, jump_target)
         {

@@ -16,7 +16,7 @@ impl super::GraphStructurer {
         let block = self.function.block(node).unwrap();
         if !block.is_empty()
             && block.last().unwrap().as_if().is_some()
-            && if let  Some((then_edge, else_edge))  = self.function.conditional_edges(node) { true } else { false }
+            && let Some((then_edge, else_edge)) = self.function.conditional_edges(node)
             && then_edge.target() == else_edge.target()
         {
             let target = then_edge.target();
