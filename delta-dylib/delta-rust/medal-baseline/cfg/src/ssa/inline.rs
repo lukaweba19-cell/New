@@ -395,11 +395,12 @@ impl<'a> Inliner<'a> {
                                     .iter()
                                     .any(|v| self.upvalue_to_group.contains_key(*v));
                             if !new_rvalue_has_side_effects
-                                && if let  Ok(ast::LValue::Local(local))  = &assign.left.iter().exactly_one() { true } else { false }
-                                    && if let  Some(read)  = arg_to_values_read[index] { true } else { false }
-                                        .iter_mut()
-                                        .find(|l| l.as_ref() == Some(local))
+                                && let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
+                                && let read = arg_to_values_read[index].clone()
+                                && read.iter_mut().find(|l| l.as_ref() == Some(local)).is_some()
                             {
+                                let read = arg_to_values_read[index].clone();
+                                let read = read.iter_mut().find(|l| l.as_ref() == Some(local)).unwrap();
                                 let mut new_rvalue = Some(
                                     block[stat_index]
                                         .as_assign_mut()
