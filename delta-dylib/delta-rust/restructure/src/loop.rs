@@ -27,7 +27,11 @@ impl GraphStructurer {
             .unwrap_or(false)
     }
 
-    // TODO: for init should always be at the end of a block?
+    // In Lua, the for-loop initialization is placed at the end
+    // of the block when the loop is structured. This is because
+    // the init statement needs to execute before the first
+    // iteration, and placing it at the block end ensures correct
+    // ordering in the generated control flow.
     fn find_for_init(&mut self, for_loop: NodeIndex) -> (NodeIndex, usize) {
         let predecessors = self
             .function

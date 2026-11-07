@@ -1,5 +1,3 @@
-#![feature(box_patterns)]
-#![feature(let_chains)]
 
 use derive_more::From;
 use enum_as_inner::EnumAsInner;
@@ -358,3 +356,17 @@ impl fmt::Display for Block {
         Formatter::format(self, f, Default::default())
     }
 }
+
+// Added: From impls for box_patterns migration
+impl From<Box<Binary>> for Box<RValue> {
+    fn from(b: Box<Binary>) -> Self {
+        Box::new(RValue::Binary(*b))
+    }
+}
+
+impl From<Box<Unary>> for Box<RValue> {
+    fn from(u: Box<Unary>) -> Self {
+        Box::new(RValue::Unary(*u))
+    }
+}
+

@@ -153,17 +153,19 @@ impl<'a: 'b, 'b> Reduce for Binary {
             }
             (
                 RValue::Binary(Binary {
-                    left:
-                        box value @ RValue::Unary(Unary {
-                            operation: UnaryOperation::Not,
-                            ..
-                        }),
-                    right: box RValue::Literal(Literal::Boolean(true)),
+                    ref left,
+                    right:                    ref right_inner,
                     operation: BinaryOperation::And,
                 }),
                 RValue::Literal(Literal::Boolean(false)),
                 BinaryOperation::Or,
-            ) => value,
+            ) => {
+                if let (RValue::Unary(Unary { ref value, operation: UnaryOperation::Not, .. }), RValue::Literal(Literal::Boolean(true))) = (left.as_ref(), right_inner.as_ref()) {
+                    RValue::Unary(Unary { value: value.clone(), operation: UnaryOperation::Not })
+                } else {
+                    unreachable!()
+                }
+            },
             (left, right, BinaryOperation::Or) if left == right => left,
             // TODO: concat numbers
             (

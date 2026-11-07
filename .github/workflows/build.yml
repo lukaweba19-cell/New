@@ -68,6 +68,23 @@ jobs:
           cargo build --release --lib -p luau-lifter --target aarch64-apple-ios-sim
           cargo build --release --bin luau-lifter --target aarch64-apple-ios-sim
 
+      - name: Verify C++ bridge compiles
+        run: |
+          # Verify the C++ bridge files compile (syntax check only;
+          # full linking requires Xcode on macOS runner)
+          if command -v clang &>/dev/null; then
+            clang++ -std=c++17 -fsyntax-only \
+              -I delta-dylib/Sources/delta_decompiler \
+              delta-dylib/Sources/delta_decompiler/decompiler_bridge.cpp \
+              delta-dylib/Sources/delta_decompiler/delta_executor_api.cpp \
+              delta-dylib/Sources/delta_decompiler/networking.cpp \
+              delta-dylib/Sources/delta_decompiler/networking_stub.cpp \
+              delta-dylib/Sources/delta_decompiler/ios_integration.mm \
+              && echo "C++ bridge syntax OK"
+          else
+            echo "clang not available; skipping C++ syntax check"
+          fi
+
       - name: Verify decompiler on sample
         working-directory: delta-dylib/delta-rust
         run: |
@@ -82,6 +99,17 @@ jobs:
             delta-dylib/delta-rust/target/**/libluau_lifter.a
             delta-dylib/delta-rust/target/**/luau-lifter
           retention-days: 7
+
+      - name: Verify TODO count
+        run: |
+          cd delta-dylib/delta-rust
+          # Count remaining TODOs (should be documentation-style only,
+          # no "fix me" or "not implemented" style TODOs)
+          TODO_COUNT=$(grep -rn '// TODO\|// FIXME' --include='*.rs' . | \
+            grep -v 'iOS/' | wc -l)
+          echo "Remaining TODOs in delta-rust: $TODO_COUNT"
+          # List them for review
+          grep -rn '// TODO\|// FIXME' --include='*.rs' . | grep -v 'iOS/' || true
 
   xcode-dylib:
     name: iOS Dylib (C++ wrapper + Rust static lib)

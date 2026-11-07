@@ -116,15 +116,20 @@ impl LocalDeclarer {
                     (common_dominator, first_stat_index.unwrap())
                 }
             };
-            while let (block, parent_stat_index) = self.graph.node_weight(node).unwrap()
-                && block.is_none()
-            {
+            loop {
+                let node_weight = match self.graph.node_weight(node) {
+                    Some(w) => w,
+                    None => break,
+                };
+                if node_weight.0.is_some() {
+                    break;
+                }
                 let parent = self
                     .graph
                     .neighbors_directed(node, Direction::Incoming)
                     .exactly_one()
                     .unwrap();
-                (node, first_stat_index) = (parent, *parent_stat_index);
+                (node, first_stat_index) = (parent, node_weight.1);
             }
             let block = self
                 .graph

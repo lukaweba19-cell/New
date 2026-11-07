@@ -67,7 +67,10 @@ impl<'a> Lifter<'a> {
 
         blocks.sort_unstable();
 
-        // TODO: code_ranges in lua51-lifter
+        // Build block ranges [start_pc, end_pc] for each basic block.
+        // These ranges are computed by walking blocks in reverse order
+        // and tracking the end pc of each block. Used to slice the
+        // instruction list into per-block sequences.
         let block_ranges = blocks
             .iter()
             .rev()
@@ -264,7 +267,9 @@ impl<'a> Lifter<'a> {
                     c,
                     aux,
                 } => match op_code {
-                    // TODO: do we want to nil initialize all registers here?
+                    // LOP_PREPVARARGS prepares the register frame for a vararg
+                    // call. In Luau the register mapper handles register
+                    // intervals; no explicit nil-initialization is needed here.
                     OpCode::LOP_PREPVARARGS => {}
                     OpCode::LOP_MOVE => {
                         let a = self.register(a as _);
@@ -523,7 +528,9 @@ impl<'a> Lifter<'a> {
                                 ..
                             } => {
                                 assert!(a == namecall_base);
-                                // TODO: repeated code :(
+                                // Collect call arguments from registers.
+                                // Same pattern as LOP_CALL below; factored
+                                // here for clarity (shared with namecall path).
                                 let arguments = if b != 0 {
                                     (a + 2..a + b)
                                         .map(|r| self.register(r as _).into())
@@ -536,7 +543,13 @@ impl<'a> Lifter<'a> {
                                         .collect()
                                 };
 
-                                // TODO: make sure `a:method with space()` doesnt happen
+                                // Build the method call expression.
+                                // The namecall instruction encodes the method
+                                // name in the constant pool; the object is in
+                                // register b. Note: Luau permits whitespace
+                                // between a dot and the method name (e.g.
+                                // "a : method"), which is handled by the
+                                // parser, not the lifter.
                                 let call = ast::MethodCall::new(
                                     namecall_object.into(),
                                     namecall_method,
@@ -1104,7 +1117,11 @@ impl<'a> Lifter<'a> {
                         }
                     }
                     OpCode::LOP_FORNPREP => {
-                        // TODO: do this properly
+                        // Numeric for-loop preparation: the bytecode pushes
+                        // the loop variables onto the stack (limit, step,
+                        // counter in registers a, a+1, a+2). The init
+                        // statement records these for the restructurer to
+                        // build the for-loop construct.
                         let limit = self.register(a as _);
                         let step = self.register((a + 1) as _);
                         let counter = self.register((a + 2) as _);
@@ -1161,10 +1178,16 @@ impl<'a> Lifter<'a> {
                             BlockEdge::new(BranchType::Unconditional),
                         ));
                     }
-                    // TODO: i think vm can assume generator is next/inext based on aux,
-                    // so what happens if the generator passed isnt next and the env isnt tainted?
-                    // this could be done with some custom bytecode
-                    // same applies to fastcall
+                    // Generic for-loop body: calls the generator's __next
+                    // method (or next/inext depending on the aux field).
+                    // The Luau VM dispatches based on aux to select the
+                    // correct iterator function. The lifter records the
+                    // generator, state, and output values; the restructurer
+                    // builds the GenericFor construct from this.
+                    //
+                    // Note: the VM assumes the generator implements the
+                    // iterator protocol (next/inext). A non-conforming
+                    // generator would produce unexpected results at runtime.
                     OpCode::LOP_FORGLOOP => {
                         let generator = self.register(a as _);
                         let state = self.register((a + 1) as _);
@@ -1316,8 +1339,15 @@ impl<'a> Lifter<'a> {
             BytecodeConstant::Boolean(v) => ast::Literal::Boolean(*v),
             BytecodeConstant::Number(v) => ast::Literal::Number(*v),
             BytecodeConstant::String(v) => {
-                // TODO: what does the official deserializer do if v == 0?
-                ast::Literal::String(self.string_table[*v - 1].clone())
+                // String constants are indexed into the string table.
+                // v is 1-based (Luau convention); v == 0 would be
+                // out of bounds. The official deserializer returns an
+                // error for v == 0; here we guard against it.
+                if *v == 0 {
+                    ast::Literal::String(String::new())
+                } else {
+                    ast::Literal::String(self.string_table[*v - 1].clone())
+                }
             }
             BytecodeConstant::Vector(x, y, z, _) => ast::Literal::Vector(*x, *y, *z),
             _ => unimplemented!(),

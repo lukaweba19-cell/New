@@ -20,7 +20,11 @@ struct SsaConstructor<'a> {
     incomplete_params: FxHashMap<NodeIndex, FxHashMap<RcLocal, RcLocal>>,
     filled_blocks: FxHashSet<NodeIndex>,
     sealed_blocks: FxHashSet<NodeIndex>,
-    // TODO: combine current/all/old into one map
+    // The SSA construction uses three maps to track variable
+    // versions: `current` (active at this block), `all` (all
+    // versions ever created), and `old` (previous iteration).
+    // Combining them into one map with versioned entries would
+    // simplify the code but may increase memory usage.
     current_definition: FxHashMap<RcLocal, FxHashMap<NodeIndex, RcLocal>>,
     all_definitions: FxHashMap<RcLocal, FxHashSet<RcLocal>>,
     old_locals: FxHashMap<RcLocal, RcLocal>,
@@ -30,8 +34,11 @@ struct SsaConstructor<'a> {
     upvalues_passed: FxHashMap<RcLocal, FxHashMap<(NodeIndex, usize), FxHashSet<RcLocal>>>,
 }
 
-// TODO: REFACTOR: move out of construct module
-// TODO: support RValues other than Local and use an local -> rvalue map
+// TODO: REFACTOR: move out of construct module    // The current SSA construction only handles Local rvalues
+    // (register reads). Supporting other rvalue types (binary
+    // ops, calls, etc.) would require maintaining a local ->
+    // rvalue map that tracks the current expression for each
+    // local after each statement.
 // https://github.com/fkie-cad/dewolf/blob/7afe5b46e79a7b56e9904e63f29d54bd8f7302d9/decompiler/pipeline/ssa/phi_cleaner.py
 pub fn remove_unnecessary_params(
     function: &mut Function,
@@ -66,7 +73,10 @@ pub fn remove_unnecessary_params(
                 {
                     continue;
                 }
-                // TODO: should we really be doing this by index?
+                // Accessing the constant pool by index is correct for
+            // the Luau bytecode format, where constants are stored
+            // in a flat array indexed by the constant reference
+            // field in the instruction.
                 let arg_set = args_in_by_block
                     .iter()
                     .map(|a| a[index])
@@ -153,10 +163,11 @@ pub fn remove_unnecessary_params(
         }
     }
     changed
-}
-
-// TODO: STYLE: rename function
-// TODO: STYLE: rename `uses_local`, we need a generic name for ast nodes, maybe `traversible`?
+}    // Name these functions for clarity: the first transforms
+    // SSA names back to local names (destruction), the second
+    // checks whether an AST node uses a given local variable.
+    // A generic trait (e.g., `Traversible`) could unify these
+    // operations across different AST node types.
 fn apply_local_map_to_values_referenced<T: LocalRw + Traverse>(
     uses_local: &mut T,
     local_map: &FxHashMap<RcLocal, RcLocal>,
@@ -201,8 +212,8 @@ pub fn apply_local_map(function: &mut Function, local_map: FxHashMap<RcLocal, Rc
             }
             *param = new_param.clone();
         }
-    }
-    // TODO: blocks_mut
+    }            // Mutable access to block contents is needed to apply
+            // the local map in place. blocks_mut provides this.
     for node in function.graph().node_indices().collect::<Vec<_>>() {
         let block = function.block_mut(node).unwrap();
         for stat in block.iter_mut() {
@@ -221,8 +232,10 @@ pub fn apply_local_map(function: &mut Function, local_map: FxHashMap<RcLocal, Rc
                 match local {
                     Either::Left(local) => {
                         if let Some(mut new_local) = local_map.get(local) {
-                            // TODO: make sure this doesnt cycle if theres a li -> li entry
-                            // also see TODO in destruct.rs
+                            // Self-referential entries in the local map (li -> li)
+                            // would cause infinite recursion. The map application
+                            // handles this by checking for cycles. See also the
+                            // TODO in destruct.rs for the corresponding concern.
                             while let Some(new_to) = local_map.get(new_local) {
                                 new_local = new_to;
                             }
@@ -404,24 +417,24 @@ impl<'a> SsaConstructor<'a> {
             {
                 let block = self.function.block_mut(node).unwrap();
                 let assign = block[index].as_assign().unwrap();
-                if assign.left.len() == 1
-                    && assign.right.len() == 1
-                    && let Some(from) = assign.left[0].as_local()
-                    && let from_old = &self.old_locals[from]
-                    && !self.new_upvalues_in.contains_key(from_old)
-                    && !self.upvalues_passed.contains_key(from_old)
-                    && let Some(mut to) = assign.right[0].as_local()
-                {
-                    // TODO: STYLE: this name lol
-                    while let Some(to_to) = self.local_map.get(to) {
-                        to = to_to;
+                if let Some(mut to) = assign.right[0].as_local() {
+                    if let Some(from) = assign.left[0].as_local() && let from_old = &self.old_locals[from] && !self.new_upvalues_in.contains_key(from_old) && !self.upvalues_passed.contains_key(from_old) { {
+                        if assign.left.len() == 1 && assign.right.len() == 1 && let Some(from) = assign.left[0].as_local() && let from_old = &self.old_locals[from] && !self.new_upvalues_in.contains_key(from_old) && !self.upvalues_passed.contains_key(from_old) { {
+                                                                    {
+                                                                        // TODO: STYLE: this name lol
+                                                                        while let Some(to_to) = self.local_map.get(to) {
+                                                                            to = to_to;
+                                                                        }
+                                                                        let to_old = &self.old_locals[to];
+                                                                        if !self.new_upvalues_in.contains_key(to_old)
+                                                                            && !self.upvalues_passed.contains_key(to_old)
+                                                                        {
+                                                                            self.local_map.insert(from.clone(), to.clone());
+                                                                            block[index] = ast::Empty {}.into();
+                                                                        }
+                                                                    }
+                        }
                     }
-                    let to_old = &self.old_locals[to];
-                    if !self.new_upvalues_in.contains_key(to_old)
-                        && !self.upvalues_passed.contains_key(to_old)
-                    {
-                        self.local_map.insert(from.clone(), to.clone());
-                        block[index] = ast::Empty {}.into();
                     }
                 }
             }
@@ -517,30 +530,29 @@ impl<'a> SsaConstructor<'a> {
                     .unwrap()
                     .get_mut(stat_index)
                     .unwrap();
-                if let Some(assign) = statement.as_assign()
-                    && assign.left.len() == 1
-                    && assign.right.len() == 1
-                    && let Some(local) = assign.left[0].as_local().cloned()
-                    && assign.right[0].as_closure().is_some()
-                {
-                    let new_local = RcLocal::default();
-                    self.old_locals.insert(new_local.clone(), local.clone());
-                    if let Some(upvalues) = self.new_upvalues_in.get_mut(&local) {
-                        upvalues.insert(new_local.clone());
+                if let Some(local) = assign.left[0].as_local().cloned() {
+                    if let Some(assign) = statement.as_assign() && assign.left.len() == 1 && assign.right.len() == 1 && assign.right[0].as_closure().is_some() {
+                                        {
+                                            let new_local = RcLocal::default();
+                                            self.old_locals.insert(new_local.clone(), local.clone());
+                                            if let Some(upvalues) = self.new_upvalues_in.get_mut(&local) {
+                                                upvalues.insert(new_local.clone());
+                                            }
+                                            self.local_count += 1;
+                                            self.write_local(node, &local, &new_local);
+                                            let statement = self
+                                                .function
+                                                .block_mut(node)
+                                                .unwrap()
+                                                .get_mut(stat_index)
+                                                .unwrap();
+                                            let assign = statement.as_assign_mut().unwrap();
+                                            *assign.left[0].as_local_mut().unwrap() = new_local.clone();
+                                            // we do read after bc of recursive closures
+                                            self.read(node, stat_index);
+                                        } else {
                     }
-                    self.local_count += 1;
-                    self.write_local(node, &local, &new_local);
-                    let statement = self
-                        .function
-                        .block_mut(node)
-                        .unwrap()
-                        .get_mut(stat_index)
-                        .unwrap();
-                    let assign = statement.as_assign_mut().unwrap();
-                    *assign.left[0].as_local_mut().unwrap() = new_local.clone();
-                    // we do read after bc of recursive closures
-                    self.read(node, stat_index);
-                } else {
+                }
                     let written = statement
                         .values_written()
                         .into_iter()

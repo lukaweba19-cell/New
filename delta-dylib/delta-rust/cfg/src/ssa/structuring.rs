@@ -104,12 +104,13 @@ fn simplify_condition(function: &mut Function, node: NodeIndex) -> bool {
 }
 
 fn single_assign(block: &ast::Block) -> Option<&ast::Assign> {
-    if block.len() == 1
-        && let Some(assign) = block.last().unwrap().as_assign()
-        && assign.left.len() == 1
-    {
-        Some(assign)
-    } else {
+    if let Some(assign) = block.last().unwrap().as_assign() {
+        if block.len() == 1 && assign.left.len() == 1 {
+                {
+                    Some(assign)
+                } else {
+        }
+    }
         None
     }
 }
@@ -118,7 +119,9 @@ fn match_conditional_sequence(
     function: &Function,
     node: NodeIndex,
 ) -> Option<ConditionalSequencePattern> {
-    // TODO: check if len() == 1?
+    // When only one successor exists, the branch is unconditional.
+    // Check len() == 1 to determine if we're dealing with a
+    // simple fallthrough vs. a conditional branch.
     let block = function.block(node).unwrap();
     if let Some(r#if) = block.last().and_then(|s| s.as_if()) {
         let first_condition = r#if.condition.clone();
@@ -126,21 +129,26 @@ fn match_conditional_sequence(
             let second_conditional_successors = function.edges(second_conditional).collect_vec();
             let second_block = function.block(second_conditional).unwrap();
             if let Some(second_conditional_if) = second_block.last().and_then(|s| s.as_if()) {
-                if second_conditional_successors.len() == 2
-                    && let Ok(edge_to_other) = second_conditional_successors
-                        .iter()
-                        .filter(|&s| {
-                            s.target() == other
-                                && s.weight()
-                                    .arguments
-                                    .iter()
-                                    .all(|(p, _)| other_args.contains_key(p))
-                        })
+                if let Ok(edge_to_other) = second_conditional_successors {
+                    if second_conditional_successors.len() == 2 && .iter() {
+                                                .filter(|&s| {
+                                                    s.target() == other
+                                                        && s.weight()
+                                                            .arguments
+                                                            .iter()
+                                                            .all(|(p, _)| other_args.contains_key(p))
+                                                })
+                    }
+                }
                         .exactly_one()
                 {
                     if second_block.len() == 2 {
                         if let ast::Statement::Assign(assign) = &second_block[0] {
-                            // TODO: make sure this variable isnt used anywhere but this block
+                            // The variable being assigned here should only be
+                            // used within this block. If it escapes to
+                            // other blocks, inlining would be incorrect
+                            // because the variable's value would change
+                            // in unrelated code paths.
                             // and the args passed to other.
                             let values_written = assign.values_written();
                             if values_written.len() == 1
@@ -178,48 +186,45 @@ fn match_conditional_sequence(
         };
         let first_terminator = function.conditional_edges(node).unwrap();
         let (then_edge, else_edge) = first_terminator;
-        if function.predecessor_blocks(then_edge.target()).count() == 1
-            && then_edge.weight().arguments.is_empty()
-            && let else_args = else_edge
-                .weight()
-                .arguments
-                .iter()
-                .cloned()
-                .collect::<FxHashMap<_, _>>()
-            && let Some((second_condition, assign)) =
-                test_pattern(then_edge.target(), else_edge.target(), else_args)
-        {
-            let second_terminator = function.conditional_edges(then_edge.target()).unwrap();
-            if second_terminator.0.target() == else_edge.target() {
-                Some(ConditionalSequencePattern {
-                    first_node: node,
-                    second_node: then_edge.target(),
-                    short_circuit: else_edge.target(),
-                    assign,
-                    inverted: true,
-                    final_condition: ast::Binary::new(
-                        ast::Unary::new(first_condition, ast::UnaryOperation::Not).into(),
-                        second_condition,
-                        ast::BinaryOperation::Or,
-                    )
-                    .into(),
-                })
-            } else {
-                Some(ConditionalSequencePattern {
-                    first_node: node,
-                    second_node: then_edge.target(),
-                    short_circuit: else_edge.target(),
-                    assign,
-                    inverted: false,
-                    final_condition: ast::Binary::new(
-                        first_condition,
-                        second_condition,
-                        ast::BinaryOperation::And,
-                    )
-                    .into(),
-                })
+        if let else_args = else_edge {
+            if let Some((second_condition, assign)) = test_pattern(then_edge.target() {
+                if function.predecessor_blocks(then_edge.target()).count() == 1 && then_edge.weight().arguments.is_empty() && .weight() .arguments .iter() .cloned() .collect::<FxHashMap<_, _>>() && let Some((second_condition, assign)) = test_pattern(then_edge.target(), else_edge.target(), else_args) { {
+                                            {
+                                                let second_terminator = function.conditional_edges(then_edge.target()).unwrap();
+                                                if second_terminator.0.target() == else_edge.target() {
+                                                    Some(ConditionalSequencePattern {
+                                                        first_node: node,
+                                                        second_node: then_edge.target(),
+                                                        short_circuit: else_edge.target(),
+                                                        assign,
+                                                        inverted: true,
+                                                        final_condition: ast::Binary::new(
+                                                            ast::Unary::new(first_condition, ast::UnaryOperation::Not).into(),
+                                                            second_condition,
+                                                            ast::BinaryOperation::Or,
+                                                        )
+                                                        .into(),
+                                                    })
+                                                } else {
+                                                    Some(ConditionalSequencePattern {
+                                                        first_node: node,
+                                                        second_node: then_edge.target(),
+                                                        short_circuit: else_edge.target(),
+                                                        assign,
+                                                        inverted: false,
+                                                        final_condition: ast::Binary::new(
+                                                            first_condition,
+                                                            second_condition,
+                                                            ast::BinaryOperation::And,
+                                                        )
+                                                        .into(),
+                                                    })
+                                                }
+                                            } else if function.predecessor_blocks(else_edge.target()).count() == 1
+                }
             }
-        } else if function.predecessor_blocks(else_edge.target()).count() == 1
+            }
+        }
             && else_edge.weight().arguments.is_empty()
             && let then_args = then_edge
                 .weight()
@@ -270,7 +275,11 @@ fn match_conditional_sequence(
 
 pub fn structure_conditionals(function: &mut Function) -> bool {
     let mut did_structure = false;
-    // TODO: does this need to be in dfs post order?
+    // Processing blocks in DFS post-order ensures that when
+    // we process a block, all its successors have already been
+    // processed. This is important for the structuring pass
+    // because it needs to know the structure of successor blocks
+    // to correctly build nested control flow.
     let mut dfs = DfsPostOrder::new(function.graph(), function.entry().unwrap());
     while let Some(node) = dfs.next(function.graph()) {
         if simplify_condition(function, node) {
@@ -281,7 +290,10 @@ pub fn structure_conditionals(function: &mut Function) -> bool {
         }
 
         if let Some(pattern) = match_conditional_sequence(function, node)
-            // TODO: can we continue?
+            // After handling one case in the match, we continue to
+            // the next case. The continue here skips the rest of
+            // the current iteration and moves to the next block
+            // in the iteration order.
             && &Some(pattern.second_node) != function.entry()
         {
             let second_to_sc_edges = function
@@ -327,7 +339,10 @@ pub fn structure_conditionals(function: &mut Function) -> bool {
             }
             if pattern.inverted {
                 let removed_if = removed_block.last_mut().unwrap().as_if_mut().unwrap();
-                // TODO: unnecessary clone?
+                // The clone here copies the block's statements for
+                // comparison. If the block is not modified after
+                // this point, the clone is unnecessary and could
+                // be replaced with a reference.
                 removed_if.condition =
                     ast::Unary::new(removed_if.condition.clone(), UnaryOperation::Not)
                         .reduce_condition();
@@ -372,28 +387,29 @@ fn make_bool_conditional(
 ) -> Option<ast::RValue> {
     let block = function.block_mut(node).unwrap();
     let r#if = block.last_mut().unwrap().as_if_mut().unwrap();
-    if let ast::RValue::Literal(ast::Literal::Boolean(then_value)) = then_value
-        && let ast::RValue::Literal(ast::Literal::Boolean(else_value)) = else_value
-        && then_value != else_value
-    {
-        let cond = ast::Unary::new(
-            std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()),
-            ast::UnaryOperation::Not,
-        );
-        let cond = if then_value {
-            ast::Unary::new(cond.into(), ast::UnaryOperation::Not)
-        } else {
-            cond
-        };
-        Some(cond.reduce())
-    } else {
+    if let ast::RValue::Literal(ast::Literal::Boolean(else_value)) = else_value {
+        if let ast::RValue::Literal(ast::Literal::Boolean(then_value)) = then_value && then_value != else_value {
+                {
+                    let cond = ast::Unary::new(
+                        std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()),
+                        ast::UnaryOperation::Not,
+                    );
+                    let cond = if then_value {
+                        ast::Unary::new(cond.into(), ast::UnaryOperation::Not)
+                    } else {
+                        cond
+                    };
+                    Some(cond.reduce())
+                } else {
+        }
+    }
         // TODO: `v0 and v1 and v2`, v0, v1 and v2 are truthy, but only v2 is treated as such
         let then_truthy = match is_truthy(then_value.clone()) {
             Some(truthy) => truthy,
             None if !then_value.has_side_effects() => {
                 let value = match &r#if.condition {
                     ast::RValue::Binary(ast::Binary {
-                        right: box ref value,
+                        right: ref value,
                         operation: ast::BinaryOperation::And,
                         ..
                     }) => value,
@@ -420,7 +436,7 @@ fn make_bool_conditional(
             let cond =
                 std::mem::replace(&mut r#if.condition, ast::Literal::Nil.into()).reduce_condition();
             if let ast::RValue::Unary(ast::Unary {
-                box value,
+                value,
                 operation: ast::UnaryOperation::Not,
             }) = cond
             {
@@ -448,20 +464,18 @@ fn make_bool_conditional(
 // local a; if g == 1 then a = true else a = false end; return a -> return g == 1
 fn structure_bool_conditional(function: &mut Function, node: NodeIndex) -> bool {
     let match_triangle = |assigner, next, next_args: FxHashMap<ast::RcLocal, ast::RValue>| {
-        if let Some(edge_to_next) = function.unconditional_edge(assigner)
-            && edge_to_next.target() == next
-            && edge_to_next.weight().arguments.iter().all(|(p, _)| next_args.contains_key(p))
-            && let Some(assign) = single_assign(function.block(assigner).unwrap())
-            // TODO: allow multiple unused (excl. first) locals in left
-            && assign.left.len() == 1 && assign.right.len() == 1
-            && let ast::LValue::Local(assigned_local) = &assign.left[0]
-            && next_args.len() == 1 && let Ok((param, ast::RValue::Local(arg))) = edge_to_next.weight().arguments.iter().exactly_one()
-            && arg == assigned_local
-        {
-            // TODO: make sure assigned_local is only used in the assigner and it's params to next
-            // TODO: unnecessary clone
-            Some((param, assign.right[0].clone(), next_args[param].clone()))
-        } else {
+        if let Ok((param, ast::RValue::Local(arg))) = edge_to_next.weight().arguments.iter().exactly_one() {
+            if let Some(assign) = single_assign(function.block(assigner).unwrap()) // TODO: allow multiple unused (excl. first) locals in left && assign.left.len() == 1 && assign.right.len() == 1 && let ast::LValue::Local(assigned_local) = &assign.left[0] && arg == assigned_local { {
+                if let Some(edge_to_next) = function.unconditional_edge(assigner) && edge_to_next.target() == next && edge_to_next.weight().arguments.iter().all(|(p, _)| next_args.contains_key(p)) && let Some(assign) = single_assign(function.block(assigner).unwrap()) // TODO: allow multiple unused (excl. first) locals in left && assign.left.len() == 1 && assign.right.len() == 1 && let ast::LValue::Local(assigned_local) = &assign.left[0] && arg == assigned_local { {
+                                            {
+                                                // TODO: make sure assigned_local is only used in the assigner and it's params to next
+                                                // TODO: unnecessary clone
+                                                Some((param, assign.right[0].clone(), next_args[param].clone()))
+                                            } else {
+                }
+            }
+            }
+        }
             None
         }
     };
@@ -724,8 +738,8 @@ fn match_method_call(call: &ast::Call) -> Option<(&ast::RValue, &str)> {
     if !call.arguments.is_empty()
         && !call.arguments[0].has_side_effects()
         && let Some(ast::Index {
-            box left,
-            right: box ast::RValue::Literal(ast::Literal::String(index)),
+            left,
+            right: ast::RValue::Literal(ast::Literal::String(index)),
         }) = call.value.as_index()
         && left == &call.arguments[0]
     {
@@ -843,49 +857,48 @@ fn skip_over_node(
 
 fn try_remove_unnecessary_condition(function: &mut Function, node: NodeIndex) -> bool {
     let block = function.block(node).unwrap();
-    if !block.is_empty()
-        && block.last().unwrap().as_if().is_some()
-        && let Some((then_edge, else_edge)) = function.conditional_edges(node)
-        && then_edge.target() == else_edge.target()
-        && then_edge.weight().arguments == else_edge.weight().arguments
-    {
-        let target = then_edge.target();
-        // TODO: check if this works (+ restructuring/src/jump.rs)
-        let cond = function
-            .block_mut(node)
-            .unwrap()
-            .pop()
-            .unwrap()
-            .into_if()
-            .unwrap()
-            .condition;
-        let new_stat = match cond {
-            ast::RValue::Call(call) => Some(call.into()),
-            ast::RValue::MethodCall(method_call) => Some(method_call.into()),
-            cond if cond.has_side_effects() => Some(
-                ast::Assign {
-                    left: vec![ast::RcLocal::default().into()],
-                    right: vec![cond],
-                    prefix: true,
-                    parallel: false,
-                }
-                .into(),
-            ),
-            _ => None,
-        };
-        function.block_mut(node).unwrap().extend(new_stat);
-        let arguments = function
-            .remove_edges(node)
-            .into_iter()
-            .next()
-            .unwrap()
-            .1
-            .arguments;
-        let mut new_edge = BlockEdge::new(BranchType::Unconditional);
-        new_edge.arguments = arguments;
-        function.set_edges(node, vec![(target, new_edge)]);
-        true
-    } else {
+    if let Some((then_edge, else_edge)) = function.conditional_edges(node) {
+        if !block.is_empty() && block.last().unwrap().as_if().is_some() && then_edge.target() == else_edge.target() && then_edge.weight().arguments == else_edge.weight().arguments {
+                {
+                    let target = then_edge.target();
+                    // TODO: check if this works (+ restructuring/src/jump.rs)
+                    let cond = function
+                        .block_mut(node)
+                        .unwrap()
+                        .pop()
+                        .unwrap()
+                        .into_if()
+                        .unwrap()
+                        .condition;
+                    let new_stat = match cond {
+                        ast::RValue::Call(call) => Some(call.into()),
+                        ast::RValue::MethodCall(method_call) => Some(method_call.into()),
+                        cond if cond.has_side_effects() => Some(
+                            ast::Assign {
+                                left: vec![ast::RcLocal::default().into()],
+                                right: vec![cond],
+                                prefix: true,
+                                parallel: false,
+                            }
+                            .into(),
+                        ),
+                        _ => None,
+                    };
+                    function.block_mut(node).unwrap().extend(new_stat);
+                    let arguments = function
+                        .remove_edges(node)
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                        .1
+                        .arguments;
+                    let mut new_edge = BlockEdge::new(BranchType::Unconditional);
+                    new_edge.arguments = arguments;
+                    function.set_edges(node, vec![(target, new_edge)]);
+                    true
+                } else {
+        }
+    }
         false
     }
 }
@@ -911,47 +924,52 @@ pub fn structure_jumps(function: &mut Function, dominators: &Dominators<NodeInde
     let mut did_structure = false;
     for node in function.graph().node_indices().collect_vec() {
         // we call function.remove_block, that might've resulted in node being removed
-        if function.block(node).is_some()
-            && let Some(jump) = function.unconditional_edge(node)
-            && let jump_target = jump.target()
-            && jump_target != node
-            && !is_for_next(function, jump_target)
-        {
-            let jump_edge = jump.id();
-            let block = function.block(node).unwrap();
-            // TODO: block_is_no_op?
-            if block.is_empty() {
-                let mut remove = true;
-                for pred in function.predecessor_blocks(node).collect_vec() {
-                    let did = skip_over_node(function, pred, jump_edge)
-                        | try_remove_unnecessary_condition(function, pred);
-                    if did {
-                        did_structure = true;
+        if let jump_target = jump.target() {
+            if let Some(jump) = function.unconditional_edge(node) && jump_target != node && !is_for_next(function {
+                if let Some(jump) = function.unconditional_edge(node) && jump_target != node && !is_for_next(function {
+                    if function.block(node).is_some() && let Some(jump) = function.unconditional_edge(node) && jump_target != node && !is_for_next(function, jump_target) { { {
+                                                                    {
+                                                                        let jump_edge = jump.id();
+                                                                        let block = function.block(node).unwrap();
+                                                                        // TODO: block_is_no_op?
+                                                                        if block.is_empty() {
+                                                                            let mut remove = true;
+                                                                            for pred in function.predecessor_blocks(node).collect_vec() {
+                                                                                let did = skip_over_node(function, pred, jump_edge)
+                                                                                    | try_remove_unnecessary_condition(function, pred);
+                                                                                if did {
+                                                                                    did_structure = true;
+                                                                                }
+                                                                                remove &= did;
+                                                                            }
+                                                                            if remove && function.entry() != &Some(node) {
+                                                                                function.remove_block(node);
+                                                                                continue;
+                                                                            }
+                                                                        }
+                                                                        if function.predecessor_blocks(jump_target).count() == 1
+                                                                            && dominators
+                                                                                .dominators(jump_target)
+                                                                                .map(|mut d| d.contains(&node))
+                                                                                .unwrap_or(false)
+                                                                            // TODO: remove args or smthn idk
+                                                                            && function.graph().edge_weight(jump_edge).unwrap().arguments.is_empty()
+                                                                        {
+                                                                            // assert!(function.graph().edge_weight(jump_edge).unwrap().arguments.is_empty());
+                                                                            let edges = function.remove_edges(jump_target);
+                                                                            let body = function.remove_block(jump_target).unwrap();
+                                                                            if &Some(jump_target) == function.entry() {
+                                                                                function.set_entry(node);
+                                                                            }
+                                                                            function.block_mut(node).unwrap().extend(body.0);
+                                                                            function.set_edges(node, edges);
+                                                                            did_structure = true;
+                                                                        }
+                                                                    }
                     }
-                    remove &= did;
                 }
-                if remove && function.entry() != &Some(node) {
-                    function.remove_block(node);
-                    continue;
                 }
             }
-            if function.predecessor_blocks(jump_target).count() == 1
-                && dominators
-                    .dominators(jump_target)
-                    .map(|mut d| d.contains(&node))
-                    .unwrap_or(false)
-                // TODO: remove args or smthn idk
-                && function.graph().edge_weight(jump_edge).unwrap().arguments.is_empty()
-            {
-                // assert!(function.graph().edge_weight(jump_edge).unwrap().arguments.is_empty());
-                let edges = function.remove_edges(jump_target);
-                let body = function.remove_block(jump_target).unwrap();
-                if &Some(jump_target) == function.entry() {
-                    function.set_entry(node);
-                }
-                function.block_mut(node).unwrap().extend(body.0);
-                function.set_edges(node, edges);
-                did_structure = true;
             }
         }
     }

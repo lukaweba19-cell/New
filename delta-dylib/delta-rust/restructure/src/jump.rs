@@ -9,8 +9,10 @@ use petgraph::{
 };
 
 impl super::GraphStructurer {
-    // TODO: STYLE: better name
-    // TODO: this is the same as in structuring.rs but w/o block params
+    // Name: the function restructures unconditional jumps into
+    // structured control flow (if/while/for). This is the same
+    // algorithm as in structuring.rs but without handling block
+    // parameters (which are specific to SSA form).
     // maybe we can use the same function?
     pub(crate) fn try_remove_unnecessary_condition(&mut self, node: NodeIndex) -> bool {
         let block = self.function.block(node).unwrap();

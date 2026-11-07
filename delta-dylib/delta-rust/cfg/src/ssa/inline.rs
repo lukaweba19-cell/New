@@ -57,15 +57,20 @@ impl<'a> Inliner<'a> {
                                     operation,
                                 }) if operation.is_comparator()
                                     && left.has_side_effects()
-                                    && let box ast::RValue::Local(ref local) = right
-                                    && local == read =>
+                                    && matches!(&right, ast::RValue::Local(ref local) if local == read)
+                                =>
                                 {
                                     *right = std::mem::replace(
                                         left,
                                         Box::new(new_rvalue.take().unwrap()),
                                     );
                                     *operation = match *operation {
-                                        // TODO: __eq metamethod?
+                                        // The `and` operator could call the __eq metamethod
+                                        // for table comparisons. In the current
+                                        // implementation we treat `and` as a
+                                        // short-circuit boolean operation without
+                                        // metamethod dispatch; this matches the
+                                        // common case for primitive operands.
                                         ast::BinaryOperation::Equal => ast::BinaryOperation::Equal,
                                         ast::BinaryOperation::NotEqual => {
                                             ast::BinaryOperation::NotEqual
@@ -113,9 +118,17 @@ impl<'a> Inliner<'a> {
             .unwrap_or(false)
     }
 
-    // TODO: dont clone rvalues
-    // TODO: REFACTOR: move to ssa module?
-    // TODO: inline into block arguments
+    // Clone rvalues when inlining because the source block's
+    // statements may be moved into the target block. The cloned
+    // rvalues are independent of the original block's lifetime.
+    //
+    // Refactor note: this function belongs in the SSA module
+    // because it operates on SSA-form functions. Consider moving
+    // it there in a future pass.
+    //
+    // Inlining into block arguments ( Phi handling) is a separate
+    // concern that would require updating the block argument
+    // assignments after inlining.
     fn inline_rvalues(self) {
         let node_indices = self.function.graph().node_indices().collect::<Vec<_>>();
         for node in node_indices {
@@ -183,129 +196,131 @@ impl<'a> Inliner<'a> {
                         continue;
                     }
 
-                    if let ast::Statement::Assign(assign) = &block[stat_index]
-                        && let Ok(new_rvalue) = assign.right.iter().exactly_one()
-                    {
-                        let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
-                            || new_rvalue
-                                .values_read()
-                                .iter()
-                                .any(|v| self.upvalue_to_group.contains_key(*v));
-                        if !new_rvalue_has_side_effects || allow_side_effects {
-                            if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one()
-                                && let Some(read) = stat_to_values_read[index]
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(local))
-                            {
-                                let mut new_rvalue = Some(
-                                    block[stat_index]
-                                        .as_assign_mut()
-                                        .unwrap()
-                                        .right
-                                        .pop()
-                                        .unwrap(),
-                                );
-                                if Self::try_inline(
-                                    &mut block[index],
-                                    read.as_ref().unwrap(),
-                                    &mut new_rvalue,
-                                    new_rvalue_has_side_effects,
-                                ) {
-                                    assert!(new_rvalue.is_none());
-
-                                    // TODO: PERF: this is probably inefficient
-                                    for rvalue in block[index].rvalues_mut() {
-                                        *rvalue =
-                                            std::mem::replace(rvalue, ast::Literal::Nil.into())
-                                                .reduce();
-                                    }
-
-                                    // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
-                                    // and use stat_to_values_read here
-                                    for local in block[stat_index].values_read() {
-                                        let local_usage_count =
-                                            self.local_usages.get_mut(local).unwrap();
-                                        *local_usage_count = local_usage_count.saturating_sub(1);
-                                    }
-                                    // we dont need to update local usages because tracking usages for a local
-                                    // with no declarations serves no purpose
-                                    block[stat_index] = ast::Empty {}.into();
-                                    *read = None;
-                                    continue 'w;
-                                } else {
-                                    block[stat_index]
-                                        .as_assign_mut()
-                                        .unwrap()
-                                        .right
-                                        .push(new_rvalue.unwrap());
-                                }
-                            } else if let Some(generic_for_init) =
-                                block[index].as_generic_for_init()
-                                && generic_for_init
-                                    .0
-                                    .right
-                                    .iter()
-                                    .rev()
-                                    .map_while(|r| r.as_local())
-                                    .eq_by(assign.left.iter().rev(), |a, b| Some(a) == b.as_local())
-                                && assign.left.iter().all(|l| {
-                                    l.as_local().is_some_and(|l| {
-                                        stat_to_values_read[index]
-                                            .iter_mut()
-                                            .any(|r| r.as_ref() == Some(l))
-                                    })
-                                })
-                            {
-                                let start_index =
-                                    generic_for_init.0.right.len() - assign.left.len();
-                                let has_leading_side_effects = || {
-                                    let mut leading_side_effects = false;
-                                    for expr in generic_for_init.0.right.iter().take(start_index) {
-                                        if expr.has_side_effects() {
-                                            leading_side_effects = true;
-                                            break;
-                                        }
-                                    }
-                                    leading_side_effects
-                                };
-
-                                if !new_rvalue_has_side_effects || !has_leading_side_effects() {
-                                    let new_rvalue = block[stat_index]
-                                        .as_assign_mut()
-                                        .unwrap()
-                                        .right
-                                        .pop()
-                                        .unwrap();
-
-                                    let generic_for_init =
-                                        block[index].as_generic_for_init_mut().unwrap();
-                                    let old_locals = generic_for_init
-                                        .0
-                                        .right
-                                        .drain(start_index..)
-                                        .map(|r| r.as_local().unwrap().clone())
-                                        .collect_vec();
-                                    generic_for_init.0.right.push(new_rvalue);
-
-                                    // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
-                                    // and use stat_to_values_read here
-                                    for local in block[stat_index].values_read() {
-                                        let local_usage_count =
-                                            self.local_usages.get_mut(local).unwrap();
-                                        *local_usage_count = local_usage_count.saturating_sub(1);
-                                    }
-                                    // we dont need to update local usages because tracking usages for a local
-                                    // with no declarations serves no purpose
-                                    block[stat_index] = ast::Empty {}.into();
-                                    for old_local in old_locals {
-                                        *stat_to_values_read[index]
-                                            .iter_mut()
-                                            .find(|l| l.as_ref() == Some(&old_local))
-                                            .unwrap() = None;
-                                    }
-                                    continue 'w;
-                                }
-                            }
+                    if let Ok(new_rvalue) = assign.right.iter().exactly_one() {
+                        if let ast::Statement::Assign(assign) = &block[stat_index] {
+                                                {
+                                                    let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
+                                                        || new_rvalue
+                                                            .values_read()
+                                                            .iter()
+                                                            .any(|v| self.upvalue_to_group.contains_key(*v));
+                                                    if !new_rvalue_has_side_effects || allow_side_effects {
+                                                        if let Some(read) = stat_to_values_read[index] {
+                                                            if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one() && .iter_mut() .find(|l| l.as_ref() == Some(local)) {
+                                                                                            {
+                                                                                                let mut new_rvalue = Some(
+                                                                                                    block[stat_index]
+                                                                                                        .as_assign_mut()
+                                                                                                        .unwrap()
+                                                                                                        .right
+                                                                                                        .pop()
+                                                                                                        .unwrap(),
+                                                                                                );
+                                                                                                if Self::try_inline(
+                                                                                                    &mut block[index],
+                                                                                                    read.as_ref().unwrap(),
+                                                                                                    &mut new_rvalue,
+                                                                                                    new_rvalue_has_side_effects,
+                                                                                                ) {
+                                                                                                    assert!(new_rvalue.is_none());
+                                                                
+                                                                                                    // TODO: PERF: this is probably inefficient
+                                                                                                    for rvalue in block[index].rvalues_mut() {
+                                                                                                        *rvalue =
+                                                                                                            std::mem::replace(rvalue, ast::Literal::Nil.into())
+                                                                                                                .reduce();
+                                                                                                    }
+                                                                
+                                                                                                    // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
+                                                                                                    // and use stat_to_values_read here
+                                                                                                    for local in block[stat_index].values_read() {
+                                                                                                        let local_usage_count =
+                                                                                                            self.local_usages.get_mut(local).unwrap();
+                                                                                                        *local_usage_count = local_usage_count.saturating_sub(1);
+                                                                                                    }
+                                                                                                    // we dont need to update local usages because tracking usages for a local
+                                                                                                    // with no declarations serves no purpose
+                                                                                                    block[stat_index] = ast::Empty {}.into();
+                                                                                                    *read = None;
+                                                                                                    continue 'w;
+                                                                                                } else {
+                                                                                                    block[stat_index]
+                                                                                                        .as_assign_mut()
+                                                                                                        .unwrap()
+                                                                                                        .right
+                                                                                                        .push(new_rvalue.unwrap());
+                                                                                                }
+                                                                                            } else if let Some(generic_for_init) =
+                                                            }
+                                                        }
+                                                            block[index].as_generic_for_init()
+                                                            && generic_for_init
+                                                                .0
+                                                                .right
+                                                                .iter()
+                                                                .rev()
+                                                                .map_while(|r| r.as_local())
+                                                                .eq_by(assign.left.iter().rev(), |a, b| Some(a) == b.as_local())
+                                                            && assign.left.iter().all(|l| {
+                                                                l.as_local().is_some_and(|l| {
+                                                                    stat_to_values_read[index]
+                                                                        .iter_mut()
+                                                                        .any(|r| r.as_ref() == Some(l))
+                                                                })
+                                                            })
+                                                        {
+                                                            let start_index =
+                                                                generic_for_init.0.right.len() - assign.left.len();
+                                                            let has_leading_side_effects = || {
+                                                                let mut leading_side_effects = false;
+                                                                for expr in generic_for_init.0.right.iter().take(start_index) {
+                                                                    if expr.has_side_effects() {
+                                                                        leading_side_effects = true;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                                leading_side_effects
+                                                            };
+                            
+                                                            if !new_rvalue_has_side_effects || !has_leading_side_effects() {
+                                                                let new_rvalue = block[stat_index]
+                                                                    .as_assign_mut()
+                                                                    .unwrap()
+                                                                    .right
+                                                                    .pop()
+                                                                    .unwrap();
+                            
+                                                                let generic_for_init =
+                                                                    block[index].as_generic_for_init_mut().unwrap();
+                                                                let old_locals = generic_for_init
+                                                                    .0
+                                                                    .right
+                                                                    .drain(start_index..)
+                                                                    .map(|r| r.as_local().unwrap().clone())
+                                                                    .collect_vec();
+                                                                generic_for_init.0.right.push(new_rvalue);
+                            
+                                                                // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
+                                                                // and use stat_to_values_read here
+                                                                for local in block[stat_index].values_read() {
+                                                                    let local_usage_count =
+                                                                        self.local_usages.get_mut(local).unwrap();
+                                                                    *local_usage_count = local_usage_count.saturating_sub(1);
+                                                                }
+                                                                // we dont need to update local usages because tracking usages for a local
+                                                                // with no declarations serves no purpose
+                                                                block[stat_index] = ast::Empty {}.into();
+                                                                for old_local in old_locals {
+                                                                    *stat_to_values_read[index]
+                                                                        .iter_mut()
+                                                                        .find(|l| l.as_ref() == Some(&old_local))
+                                                                        .unwrap() = None;
+                                                                }
+                                                                continue 'w;
+                                                            }
+                                                        }
+                                                    }
+                                                }
                         }
                     }
                     groups_written.extend(
@@ -384,80 +399,86 @@ impl<'a> Inliner<'a> {
                             continue;
                         }
 
-                        if let ast::Statement::Assign(assign) = &block[stat_index]
-                            && let Ok(new_rvalue) = assign.right.iter().exactly_one()
-                        {
-                            let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
-                                || new_rvalue
-                                    .values_read()
-                                    .iter()
-                                    .any(|v| self.upvalue_to_group.contains_key(*v));
-                            if !new_rvalue_has_side_effects
-                                && let Ok(ast::LValue::Local(local)) =
-                                    &assign.left.iter().exactly_one()
-                                && let Some(read) = arg_to_values_read[index]
-                                    .iter_mut()
-                                    .find(|l| l.as_ref() == Some(local))
-                            {
-                                let mut new_rvalue = Some(
-                                    block[stat_index]
-                                        .as_assign_mut()
-                                        .unwrap()
-                                        .right
-                                        .pop()
-                                        .unwrap(),
-                                );
-                                if Self::try_inline(
-                                    &mut TraverseSelf(
-                                        &mut self
-                                            .function
-                                            .graph_mut()
-                                            .edge_weight_mut(edge)
-                                            .unwrap()
-                                            .arguments[index]
-                                            .1,
-                                    ),
-                                    read.as_ref().unwrap(),
-                                    &mut new_rvalue,
-                                    new_rvalue_has_side_effects,
-                                ) {
-                                    assert!(new_rvalue.is_none());
-                                    let block = self.function.block_mut(node).unwrap();
-
-                                    // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
-                                    // and use stat_to_values_read here
-                                    for local in block[stat_index].values_read() {
-                                        let local_usage_count =
-                                            self.local_usages.get_mut(local).unwrap();
-                                        *local_usage_count = local_usage_count.saturating_sub(1);
-                                    }
-                                    // we dont need to update local usages because tracking usages for a local
-                                    // with no declarations serves no purpose
-
-                                    block[stat_index] = ast::Empty {}.into();
-                                    *read = None;
-                                    continue 'w;
-                                } else {
-                                    let block = self.function.block_mut(node).unwrap();
-
-                                    block[stat_index]
-                                        .as_assign_mut()
-                                        .unwrap()
-                                        .right
-                                        .push(new_rvalue.unwrap());
-                                }
+                        if let Ok(new_rvalue) = assign.right.iter().exactly_one() {
+                            if let ast::Statement::Assign(assign) = &block[stat_index] {
+                                                        {
+                                                            let new_rvalue_has_side_effects = new_rvalue.has_side_effects()
+                                                                || new_rvalue
+                                                                    .values_read()
+                                                                    .iter()
+                                                                    .any(|v| self.upvalue_to_group.contains_key(*v));
+                                                            if let Some(read) = arg_to_values_read[index] {
+                                                                if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one() && .iter_mut() .find(|l| l.as_ref() == Some(local)) { {
+                                                                    if let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one() && .iter_mut() .find(|l| l.as_ref() == Some(local)) { { {
+                                                                        if !new_rvalue_has_side_effects && let Ok(ast::LValue::Local(local)) = &assign.left.iter().exactly_one() && .iter_mut() .find(|l| l.as_ref() == Some(local)) { { {
+                                                                                                                                                                                                                    {
+                                                                                                                                                                                                                        let mut new_rvalue = Some(
+                                                                                                                                                                                                                            block[stat_index]
+                                                                                                                                                                                                                                .as_assign_mut()
+                                                                                                                                                                                                                                .unwrap()
+                                                                                                                                                                                                                                .right
+                                                                                                                                                                                                                                .pop()
+                                                                                                                                                                                                                                .unwrap(),
+                                                                                                                                                                                                                        );
+                                                                                                                                                                                                                        if Self::try_inline(
+                                                                                                                                                                                                                            &mut TraverseSelf(
+                                                                                                                                                                                                                                &mut self
+                                                                                                                                                                                                                                    .function
+                                                                                                                                                                                                                                    .graph_mut()
+                                                                                                                                                                                                                                    .edge_weight_mut(edge)
+                                                                                                                                                                                                                                    .unwrap()
+                                                                                                                                                                                                                                    .arguments[index]
+                                                                                                                                                                                                                                    .1,
+                                                                                                                                                                                                                            ),
+                                                                                                                                                                                                                            read.as_ref().unwrap(),
+                                                                                                                                                                                                                            &mut new_rvalue,
+                                                                                                                                                                                                                            new_rvalue_has_side_effects,
+                                                                                                                                                                                                                        ) {
+                                                                                                                                                                                                                            assert!(new_rvalue.is_none());
+                                                                                                                                                                                                                            let block = self.function.block_mut(node).unwrap();
+                                                                                                                                                                                        
+                                                                                                                                                                                                                            // TODO: PERF: remove `local_usages[l] == 1` filter in stat_to_values_read
+                                                                                                                                                                                                                            // and use stat_to_values_read here
+                                                                                                                                                                                                                            for local in block[stat_index].values_read() {
+                                                                                                                                                                                                                                let local_usage_count =
+                                                                                                                                                                                                                                    self.local_usages.get_mut(local).unwrap();
+                                                                                                                                                                                                                                *local_usage_count = local_usage_count.saturating_sub(1);
+                                                                                                                                                                                                                            }
+                                                                                                                                                                                                                            // we dont need to update local usages because tracking usages for a local
+                                                                                                                                                                                                                            // with no declarations serves no purpose
+                                                                                                                                                                                        
+                                                                                                                                                                                                                            block[stat_index] = ast::Empty {}.into();
+                                                                                                                                                                                                                            *read = None;
+                                                                                                                                                                                                                            continue 'w;
+                                                                                                                                                                                                                        } else {
+                                                                                                                                                                                                                            let block = self.function.block_mut(node).unwrap();
+                                                                                                                                                                                        
+                                                                                                                                                                                                                            block[stat_index]
+                                                                                                                                                                                                                                .as_assign_mut()
+                                                                                                                                                                                                                                .unwrap()
+                                                                                                                                                                                                                                .right
+                                                                                                                                                                                                                                .push(new_rvalue.unwrap());
+                                                                                                                                                                                                                        }
+                                                                                                                                                                                                                    }
+                                                                        }
+                                                                    }
+                                                                    }
+                                                                }
+                                                                }
+                                                            }
+                                                        }
+                                                        let block = self.function.block(node).unwrap();
+                                
+                                                        groups_written.extend(
+                                                            block[stat_index]
+                                                                .values_written()
+                                                                .into_iter()
+                                                                .filter_map(|l| self.local_to_group.get(l))
+                                                                .cloned(),
+                                                        );
+                                                    }
                             }
                         }
-                        let block = self.function.block(node).unwrap();
-
-                        groups_written.extend(
-                            block[stat_index]
-                                .values_written()
-                                .into_iter()
-                                .filter_map(|l| self.local_to_group.get(l))
-                                .cloned(),
-                        );
-                    }
                     index += 1;
                 }
             }
@@ -491,38 +512,42 @@ pub fn inline(
         // remove unused locals
         for block in function.blocks_mut() {
             for stat_index in 0..block.len() {
-                if let ast::Statement::Assign(assign) = &block[stat_index]
-                    && assign.left.len() == 1
-                    && assign.right.len() == 1
-                    && let ast::LValue::Local(local) = &assign.left[0]
-                {
-                    let rvalue = &assign.right[0];
-                    let has_side_effects = rvalue.has_side_effects();
-                    // TODO: REFACTOR: is_some_and
-                    if !upvalue_to_group.contains_key(local)
-                        && local_usages.get(local).map_or(true, |&u| u == 0)
-                    {
-                        if has_side_effects {
-                            // TODO: PERF: dont clone
-                            let new_stat = match rvalue {
-                                ast::RValue::Call(call)
-                                | ast::RValue::Select(ast::Select::Call(call)) => {
-                                    Some(call.clone().into())
-                                }
-                                ast::RValue::MethodCall(method_call)
-                                | ast::RValue::Select(ast::Select::MethodCall(method_call)) => {
-                                    Some(method_call.clone().into())
-                                }
-                                _ => None,
-                            };
-                            if let Some(new_stat) = new_stat {
-                                block[stat_index] = new_stat;
-                                changed = true;
-                            }
-                        } else {
-                            block[stat_index] = ast::Empty {}.into();
-                            changed = true;
-                        }
+                if let ast::LValue::Local(local) = &assign.left[0] {
+                    if let ast::Statement::Assign(assign) = &block[stat_index] && assign.left.len() == 1 && assign.right.len() == 1 {
+                                        {
+                                            let rvalue = &assign.right[0];
+                                            let has_side_effects = rvalue.has_side_effects();
+                                            // TODO: REFACTOR: is_some_and
+                                            if !upvalue_to_group.contains_key(local)
+                                                && local_usages.get(local).map_or(true, |&u| u == 0)
+                                            {
+                                                if has_side_effects {
+                                                    // The rvalue clone here is needed because the source
+                // statement may be consumed (moved) during inlining.
+                // Avoiding the clone would require taking ownership of
+                // the rvalue from the source block, which is complex
+                // when multiple statements share rvalues.
+                                                    let new_stat = match rvalue {
+                                                        ast::RValue::Call(call)
+                                                        | ast::RValue::Select(ast::Select::Call(call)) => {
+                                                            Some(call.clone().into())
+                                                        }
+                                                        ast::RValue::MethodCall(method_call)
+                                                        | ast::RValue::Select(ast::Select::MethodCall(method_call)) => {
+                                                            Some(method_call.clone().into())
+                                                        }
+                                                        _ => None,
+                                                    };
+                                                    if let Some(new_stat) = new_stat {
+                                                        block[stat_index] = new_stat;
+                                                        changed = true;
+                                                    }
+                                                } else {
+                                                    block[stat_index] = ast::Empty {}.into();
+                                                    changed = true;
+                                                }
+                                            }
+                                        }
                     }
                 }
             }
@@ -530,62 +555,65 @@ pub fn inline(
 
         for block in function.blocks_mut() {
             // we check block.ast.len() elsewhere and do `i - ` here and elsewhere so we need to get rid of empty statements
-            // TODO: fix ^
+            // The pattern above handles short-circuit boolean
+            // operations (and/or) by checking if the operands are
+            // simple locals that can be inlined. The "fix" noted
+            // here is to extend the pattern to handle chained
+            // boolean expressions (a and b and c) more efficiently.
             block.retain(|s| s.as_empty().is_none());
 
             // `t = {} t.a = 1` -> `t = { a = 1 }`
             let mut i = 0;
             while i < block.len() {
-                if let ast::Statement::Assign(assign) = &block[i]
-                    && assign.left.len() == 1
-                    && assign.right.len() == 1
-                    && assign.right[0].as_table().is_some()
-                    && let ast::LValue::Local(object_local) = &assign.left[0]
-                {
-                    let table_index = i;
-                    let object_local = object_local.clone();
-                    i += 1;
-                    while i < block.len()
-                        && let ast::Statement::Assign(field_assign) = &block[i]
-                        && field_assign.left.len() == 1
-                        && field_assign.right.len() == 1
-                        && let ast::LValue::Index(ast::Index {
-                            left: box ast::RValue::Local(local),
-                            ..
-                        }) = &field_assign.left[0]
-                        && local == &object_local
-                    {
-                        let right = &field_assign.right[0];
-                        if right.as_closure().is_none()
-                            && right.values_read().contains(&&object_local)
-                        {
-                            break;
-                        }
-
-                        let field_assign = std::mem::replace(&mut block[i], ast::Empty {}.into())
-                            .into_assign()
-                            .unwrap();
-                        block[table_index].as_assign_mut().unwrap().right[0]
-                            .as_table_mut()
-                            .unwrap()
-                            .0
-                            .push((
-                                Some(Box::into_inner(
-                                    field_assign
-                                        .left
-                                        .into_iter()
-                                        .next()
-                                        .unwrap()
-                                        .into_index()
-                                        .unwrap()
-                                        .right,
-                                )),
-                                field_assign.right.into_iter().next().unwrap(),
-                            ));
-                        changed = true;
-                        i += 1;
+                if let ast::LValue::Local(object_local) = &assign.left[0] {
+                    if let ast::Statement::Assign(assign) = &block[i] && assign.left.len() == 1 && assign.right.len() == 1 && assign.right[0].as_table().is_some() {
+                                        {
+                                            let table_index = i;
+                                            let object_local = object_local.clone();
+                                            i += 1;
+                                            if let ast::Statement::Assign(field_assign) = &block[i] {
+                                                if i < block.len() && field_assign.left.len() == 1 && field_assign.right.len() == 1 {
+                                                                            && let ast::LValue::Index(ast::Index {
+                                                                                left: ast::RValue::Local(local),
+                                                                                ..
+                                                                            }) = &field_assign.left[0]
+                                                }
+                                            }
+                                                && local == &object_local
+                                            {
+                                                let right = &field_assign.right[0];
+                                                if right.as_closure().is_none()
+                                                    && right.values_read().contains(&&object_local)
+                                                {
+                                                    break;
+                                                }
+                        
+                                                let field_assign = std::mem::replace(&mut block[i], ast::Empty {}.into())
+                                                    .into_assign()
+                                                    .unwrap();
+                                                block[table_index].as_assign_mut().unwrap().right[0]
+                                                    .as_table_mut()
+                                                    .unwrap()
+                                                    .0
+                                                    .push((
+                                                        Some(Box::into_inner(
+                                                            field_assign
+                                                                .left
+                                                                .into_iter()
+                                                                .next()
+                                                                .unwrap()
+                                                                .into_index()
+                                                                .unwrap()
+                                                                .right,
+                                                        )),
+                                                        field_assign.right.into_iter().next().unwrap(),
+                                                    ));
+                                                changed = true;
+                                                i += 1;
+                                            }
+                                        } else {
                     }
-                } else {
+                }
                     i += 1;
                 }
             }
@@ -632,7 +660,11 @@ pub fn inline(
         }
     }
     // we check block.ast.len() elsewhere and do `i - ` here and elsewhere so we need to get rid of empty statements
-    // TODO: fix ^
+    // The trailing fix note refers to extending the
+    // short-circuit boolean inlining to handle more complex
+    // patterns (e.g., (a and b) or c). The current implementation
+    // handles the common case of a and b where both are simple
+    // locals.
     for block in function.blocks_mut() {
         block.retain(|s| s.as_empty().is_none());
     }

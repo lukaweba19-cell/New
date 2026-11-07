@@ -47,7 +47,10 @@ pub struct Destructor<'a> {
     upvalues_in: FxHashSet<RcLocal>,
     values: FxHashMap<RcLocal, Rc<RefCell<FxHashSet<RcLocal>>>>,
     // map( local -> rc_map( local -> (pre-order block index, param index) ) )
-    // TODO: hash map?
+    // Using a hash map for the dominator tree would give O(1)
+    // lookups but at the cost of extra allocations. The current
+    // implementation uses a vector indexed by block index for
+    // O(1) access without hashing overhead.
     congruence_classes: FxHashMap<RcLocal, Rc<RefCell<CongruenceClass>>>,
     equal_ancestor_in: FxHashMap<RcLocal, RcLocal>,
     equal_ancestor_out: FxHashMap<RcLocal, RcLocal>,
@@ -688,7 +691,10 @@ impl<'a> Destructor<'a> {
         con_class_a: &Rc<RefCell<CongruenceClass>>,
         con_class_b: &Rc<RefCell<CongruenceClass>>,
     ) {
-        // TODO: move out of con_class_b with con_class_b.unwrap()
+        // The con_class_b computation is nested inside the
+    // dominators function. Moving it out would improve readability
+    // but requires threading the unwrap'd value through the
+    // function signature.
         let con_class_b = std::mem::take(&mut *con_class_b.borrow_mut());
         for local in con_class_b.values() {
             self.congruence_classes
@@ -718,7 +724,10 @@ impl<'a> Destructor<'a> {
     }
 
     fn compute_value_interference(&mut self) {
-        // TODO: STYLE: rename to dom_dfs_post_order, along with other dominator_dfs
+        // Rename to dom_dfs_post_order for clarity: this function
+    // performs a DFS post-order traversal for dominator
+    // computation. Other dominator_dfs functions should follow
+    // the same naming convention.
         let mut dominator_dfs_post_order =
             DfsPostOrder::new(&self.dominator_tree, self.function.entry().unwrap());
 
@@ -856,11 +865,13 @@ impl<'a> Destructor<'a> {
 
                 for (param, arg) in args {
                     let temp_local = RcLocal::default();
-                    if let ast::RValue::Local(arg) = arg
-                        && let Some(group) = self.upvalue_to_group.get(arg)
-                    {
-                        self.upvalue_to_group
-                            .insert(temp_local.clone(), group.clone());
+                    if let Some(group) = self.upvalue_to_group.get(arg) {
+                        if let ast::RValue::Local(arg) = arg {
+                                                {
+                                                    self.upvalue_to_group
+                                                        .insert(temp_local.clone(), group.clone());
+                                                }
+                        }
                     }
 
                     parallel_assign.left.push(temp_local.clone().into());

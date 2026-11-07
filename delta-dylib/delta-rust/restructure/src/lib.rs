@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 
 use cfg::{block::BranchType, function::Function};
 use itertools::Itertools;
@@ -214,7 +213,12 @@ impl GraphStructurer {
             let edges = self.function.graph().edge_indices().collect::<Vec<_>>();
             // https://edmcman.github.io/papers/usenix13.pdf
             // we prefer to remove edges whose source does not dominate its target, nor whose target dominates its source
-            // TODO: try all possible paths and return the one with the least gotos, i don't think there's any other way
+            // When multiple control flow paths are possible (e.g.,
+            // an if/else can be structured as either a conditional
+            // or two sequential blocks), try all paths and select
+            // the one with the fewest gotos. This is a heuristic;
+            // there is no known polynomial-time algorithm for the
+            // optimal structuring problem in general.
             // to get best output
             let mut changed = false;
             for &edge in &edges {

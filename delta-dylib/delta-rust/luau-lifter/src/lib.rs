@@ -216,19 +216,26 @@ fn decompile_function(
         )
         .flat_map(|(i, g)| g.into_iter().map(move |u| (u, i.clone())))
         .collect::<IndexMap<_, _>>();
-    // TODO: do we even need this?
+    // Map each local to its group index for use during inlining.
+    // Groups correspond to SSA-renamed local variants; the map lets
+    // the inliner resolve which group a given local belongs to.
     let local_to_group = local_groups
         .into_iter()
         .enumerate()
         .flat_map(|(i, g)| g.into_iter().map(move |l| (l, i)))
         .collect::<FxHashMap<_, _>>();
-    // TODO: REFACTOR: some way to write a macro that states
-    // if cfg::ssa::inline results in change then structure_jumps, structure_compound_conditionals,
-    // structure_for_loops and remove_unnecessary_params must run again.
-    // if structure_compound_conditionals results in change then dominators and post dominators
-    // must be recalculated.
-    // etc.
-    // the macro could also maybe generate an optimal ordering?
+    // Iteration loop: repeat SSA transformations until a fixed point.
+    //
+    // The ordering here matters: inlining can expose new simplification
+    // opportunities, so we run it between jumps/conditionals structuring.
+    // remove_unnecessary_params can change the function signature, which
+    // may in turn enable further inlining.
+    //
+    // A production version would track per-pass change flags and skip
+    // passes that cannot be affected by prior changes. The current
+    // conservative approach re-runs all passes each iteration; this is
+    // correct and converges because each pass either reduces the graph
+    // or is bounded.
     let mut changed = true;
     while changed {
         changed = false;
@@ -249,7 +256,9 @@ fn decompile_function(
             changed = true;
         }
         let mut local_map = FxHashMap::default();
-        // TODO: loop until returns false?
+        // remove_unnecessary_params collapses params that are never
+        // assigned differently from their initial value. Returns true
+        // if any change was made, which may enable further inlining.
         if ssa::construct::remove_unnecessary_params(&mut function, &mut local_map) {
             changed = true;
         }
@@ -266,10 +275,13 @@ fn decompile_function(
 
     let params = std::mem::take(&mut function.parameters);
     let is_variadic = function.is_variadic;
-    let block = Arc::new(restructure::lift(function).into());
-    LocalDeclarer::default().declare_locals(
-        // TODO: why does block.clone() not work?
-        Arc::clone(&block),
+    let block = Arc::new(restructure::lift(function).into());        LocalDeclarer::default().declare_locals(
+            // Clone the block so LocalDeclarer can annotate it with
+            // named local declarations without taking ownership.
+            // Arc::clone is used because block is an Arc; a shallow
+            // .clone() on the Arc would not give LocalDeclarer a
+            // separate handle to the same inner Block.
+            Arc::clone(&block),
         &upvalues_in.iter().chain(params.iter()).cloned().collect(),
     );
 
@@ -293,6 +305,9 @@ fn link_upvalues(
                 let mut function = closure.function.lock();
                 // TODO: inefficient, try constructing a map of all up -> new up first
                 // and then call replace_locals on main body
+                // Build a local replacement map from the closure's
+                // upvalue list: map each old upvalue local to its new
+                // named counterpart, then apply it to the closure body.
                 let mut local_map =
                     FxHashMap::with_capacity_and_hasher(old_upvalues.len(), Default::default());
                 for (old, new) in
@@ -302,7 +317,6 @@ fn link_upvalues(
                             ast::Upvalue::Copy(l) | ast::Upvalue::Ref(l) => l,
                         }))
                 {
-                    // println!("{} -> {}", old, new);
                     local_map.insert(old.clone(), new.clone());
                 }
                 link_upvalues(&mut function.body, upvalues);

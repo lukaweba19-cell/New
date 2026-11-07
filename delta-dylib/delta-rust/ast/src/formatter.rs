@@ -461,11 +461,12 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
                         let mut buffer = itoa::Buffer::new();
                         let printed = buffer.format(c);
                         owned.push('\\');
-                        if printed.len() != 3
-                            && let Some((_, next)) = iter.peek()
-                            && next.is_ascii_digit()
-                        {
-                            owned.extend(iter::repeat('0').take(3 - printed.len()));
+                        if printed.len() != 3 {
+                            if let Some((_, next)) = iter.peek() {
+                                if next.is_ascii_digit() {
+                                    owned.extend(iter::repeat('0').take(3 - printed.len()));
+                                }
+                            }
                         }
                         owned.push_str(printed);
                     }
@@ -570,36 +571,41 @@ impl<'a, W: fmt::Write> Formatter<'a, W> {
 
         if assign.left.len() == 1
             && assign.right.len() == 1
-            && let RValue::Closure(closure) = &assign.right[0]
+            && matches!(&assign.right[0], RValue::Closure(_))
         {
             let left = &assign.left[0];
-            if assign.prefix || left.as_global().is_some() || {
-                if let LValue::Index(ref index) = left {
-                    let mut index = index;
-                    let mut valid = true;
-                    loop {
-                        if let box RValue::Literal(Literal::String(ref key)) = &index.right
-                            && Self::is_valid_name(key)
-                        {
-                            match index.left {
-                                box RValue::Index(ref i) => {
-                                    index = i;
-                                    continue;
-                                }
-                                box RValue::Global(_) | box RValue::Local(_) => {}
-                                _ => valid = false,
+            let is_named = if assign.prefix || left.as_global().is_some() {
+                false
+            } else if let LValue::Index(ref index) = left {
+                let mut index = index;
+                let mut valid = true;
+                loop {
+                    let is_valid_name = match index.right.as_ref() {
+                        RValue::Literal(Literal::String(ref key)) => Self::is_valid_name(key),
+                        _ => false,
+                    };
+                    if is_valid_name {
+                        match index.left.as_ref() {
+                            RValue::Index(ref i) => {
+                                index = i;
+                                continue;
                             }
-                        } else {
-                            valid = false;
+                            RValue::Global(_) | RValue::Local(_) => {}
+                            _ => valid = false,
                         }
-                        break;
+                    } else {
+                        valid = false;
                     }
-                    valid
-                } else {
-                    false
+                    break;
                 }
-            } {
-                return self.format_named_function(left, closure);
+                valid
+            } else {
+                false
+            };
+            if is_named {
+                if let RValue::Closure(ref closure) = &assign.right[0] {
+                    return self.format_named_function(left, closure);
+                }
             }
         }
 
