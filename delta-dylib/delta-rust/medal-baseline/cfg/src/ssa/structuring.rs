@@ -126,52 +126,52 @@ fn match_conditional_sequence(
             let second_conditional_successors = function.edges(second_conditional).collect_vec();
             let second_block = function.block(second_conditional).unwrap();
             if let Some(second_conditional_if) = second_block.last().and_then(|s| s.as_if()) {
-                if second_conditional_successors.len() == 2
-                    && second_conditional_successors
-                        .iter()
-                        .filter(|&s| {
-                            s.target() == other
-                                && s.weight()
-                                    .arguments
-                                    .iter()
-                                    .all(|(p, _)| other_args.contains_key(p))
-                        })
-                        .exactly_one().is_ok()
+                let edge_to_other = match second_conditional_successors
+                    .iter()
+                    .filter(|&s| {
+                        s.target() == other
+                            && s.weight()
+                                .arguments
+                                .iter()
+                                .all(|(p, _)| other_args.contains_key(p))
+                    })
+                    .exactly_one()
                 {
-                    if second_block.len() == 2 {
-                        if let ast::Statement::Assign(assign) = &second_block[0] {
-                            // TODO: make sure this variable isnt used anywhere but this block
-                            // and the args passed to other.
-                            let values_written = assign.values_written();
-                            if values_written.len() == 1
-                                && second_conditional_if.condition
-                                    == values_written[0].clone().into()
+                    Ok(edge) => edge,
+                    Err(_) => return None,
+                };
+                if second_block.len() == 2 {
+                    if let ast::Statement::Assign(assign) = &second_block[0] {
+                        // TODO: make sure this variable isnt used anywhere but this block
+                        // and the args passed to other.
+                        let values_written = assign.values_written();
+                        if values_written.len() == 1
+                            && second_conditional_if.condition
+                                == values_written[0].clone().into()
+                        {
+                            let valid = if other_args.len() == 1
+                                && let Ok((_, ast::RValue::Local(local))) = edge_to_other.weight().arguments.iter().exactly_one()
+                                && local == values_written[0]
                             {
-                                let valid = if other_args.len() == 1
-                                    && if let  Ok((_, ast::RValue::Local(local)))  =  { true } else { false }
-                                        edge_to_other.weight().arguments.iter().exactly_one()
-                                    && local == values_written[0]
-                                {
-                                    true
-                                } else {
-                                    other_args.is_empty()
-                                };
-                                if valid {
-                                    assert!(assign.right.len() == 1);
-                                    return Some((assign.right[0].clone(), true));
-                                }
+                                true
+                            } else {
+                                other_args.is_empty()
+                            };
+                            if valid {
+                                assert!(assign.right.len() == 1);
+                                return Some((assign.right[0].clone(), true));
                             }
                         }
-                        return None;
-                    } else if second_block.len() == 1
-                        && edge_to_other
-                            .weight()
-                            .arguments
-                            .iter()
-                            .all(|(k, v)| other_args.get(k).is_some_and(|rv| rv == v))
-                    {
-                        return Some((second_conditional_if.condition.clone(), false));
                     }
+                    return None;
+                } else if second_block.len() == 1
+                    && edge_to_other
+                        .weight()
+                        .arguments
+                        .iter()
+                        .all(|(k, v)| other_args.get(k).is_some_and(|rv| rv == v))
+                {
+                    return Some((second_conditional_if.condition.clone(), false));
                 }
             }
             None
